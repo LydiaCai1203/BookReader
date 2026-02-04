@@ -1,4 +1,4 @@
-import type { ITTSService, TTSOptions } from "@/api/types";
+import type { ITTSService, TTSOptions, TTSResponse } from "@/api/types";
 
 export class MockTTSService implements ITTSService {
   private synth = window.speechSynthesis;
@@ -20,7 +20,7 @@ export class MockTTSService implements ITTSService {
     return this.synth.getVoices().map(v => ({ name: v.name, lang: v.lang }));
   }
 
-  async speak(text: string, options?: TTSOptions): Promise<{ audioUrl?: string; duration?: number }> {
+  async speak(text: string, options?: TTSOptions): Promise<TTSResponse> {
     this.stop();
 
     return new Promise((resolve, reject) => {
@@ -37,7 +37,7 @@ export class MockTTSService implements ITTSService {
       if (options?.volume) u.volume = options.volume;
 
       u.onend = () => {
-        resolve({});
+        resolve({ audioUrl: "", cached: false, wordTimestamps: [] });
       };
       
       u.onerror = (e) => {
@@ -48,11 +48,8 @@ export class MockTTSService implements ITTSService {
       this.currentUtterance = u;
       this.synth.speak(u);
       
-      // We resolve immediately in typical API style? 
-      // No, for browser TTS we usually wait or fire events.
-      // But the interface implies an async action. 
-      // For "Mock", let's behave like a stream: it starts playing, we return "success"
-      resolve({});
+      // Mock TTS uses browser speech synthesis, resolve immediately
+      resolve({ audioUrl: "", cached: false, wordTimestamps: [] });
     });
   }
 
