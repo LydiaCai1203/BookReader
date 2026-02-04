@@ -9,7 +9,7 @@ import { ttsService } from "@/api";
 import type { NavItem, WordTimestamp } from "@/api/types";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
-import { Loader2, Menu, X, BrainCircuit, Languages } from "lucide-react";
+import { Loader2, Menu, X, BrainCircuit, Languages, Github } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -307,6 +307,15 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-background text-foreground relative overflow-hidden flex flex-col">
          <div className="absolute top-4 right-4 z-50 flex gap-2">
+           <a 
+             href="https://github.com/LydiaCai1203/BookReader" 
+             target="_blank" 
+             rel="noopener noreferrer"
+           >
+             <Button variant="outline" size="sm" className="border-primary/20 hover:border-primary hover:bg-primary/10">
+               <Github className="w-4 h-4" />
+             </Button>
+           </a>
            <TasksPanel />
            <TranslationSettings config={transConfig} onConfigChange={handleConfigChange} />
          </div>
@@ -350,6 +359,15 @@ export default function Home() {
         <ResizablePanel defaultSize={80}>
           <div className="h-full flex flex-col relative">
              <div className="absolute top-4 right-4 z-10 flex gap-2">
+                 <a 
+                   href="https://github.com/LydiaCai1203/BookReader" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                 >
+                   <Button variant="outline" size="sm" className="bg-background/50 backdrop-blur border-primary/20 hover:border-primary hover:bg-primary/10">
+                     <Github className="w-4 h-4" />
+                   </Button>
+                 </a>
                  <TasksPanel />
                  <TranslationSettings config={transConfig} onConfigChange={handleConfigChange} />
                  <Button variant="outline" size="sm" onClick={() => { ttsService.stop(); setBookId(null); setIsPlaying(false); }} className="bg-background/50 backdrop-blur hover:bg-destructive hover:text-destructive-foreground">
