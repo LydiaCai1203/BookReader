@@ -44,10 +44,8 @@ async def upload_book(file: UploadFile = File(...)):
     meta_info = BookService.parse_metadata(book_id)
     toc = BookService.get_toc(book_id)
     
-    # 添加到书架
+    # 添加到书架（存储相对路径，前端会自动加上服务器地址）
     cover_url = meta_info["coverUrl"]
-    if cover_url:
-        cover_url = f"http://localhost:8000{cover_url}"
     BookLibrary.add_book(book_id, meta_info["metadata"], cover_url)
     
     return {

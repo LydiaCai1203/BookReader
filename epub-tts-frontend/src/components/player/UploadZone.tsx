@@ -170,7 +170,11 @@ export function UploadZone({ onFileSelect, onDemoSelect, onBookSelect }: UploadZ
                 <div className="aspect-[3/4] bg-secondary overflow-hidden">
                   {book.coverUrl ? (
                     <img 
-                      src={book.coverUrl.startsWith('http') ? book.coverUrl : `${API_BASE}${book.coverUrl}`} 
+                      src={
+                        book.coverUrl.startsWith('http') 
+                          ? book.coverUrl.replace(/^https?:\/\/localhost:\d+/, API_BASE)
+                          : `${API_BASE}${book.coverUrl}`
+                      } 
                       alt={book.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
