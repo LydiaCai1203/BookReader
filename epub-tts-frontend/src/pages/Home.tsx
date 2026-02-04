@@ -48,6 +48,9 @@ export default function Home() {
   const [translatedCache, setTranslatedCache] = useState<Record<string, string[]>>({});
   const [isTranslating, setIsTranslating] = useState(false);
 
+  // 移动端侧边栏状态（必须在所有条件返回之前声明）
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const isMobile = useIsMobile();
 
   // Queries
@@ -329,9 +332,6 @@ export default function Home() {
       </div>
     );
   }
-
-  // 移动端侧边栏状态
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <div className="h-screen w-screen bg-background text-foreground flex flex-col overflow-hidden relative">
