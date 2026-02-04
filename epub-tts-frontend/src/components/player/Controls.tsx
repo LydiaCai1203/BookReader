@@ -136,7 +136,7 @@ export function Controls({
   };
 
   return (
-    <div className="fixed bottom-0 inset-x-0 bg-card border-t border-border p-4 flex items-center gap-6 shadow-[0_-5px_20px_rgba(0,0,0,0.3)] z-[100]">
+    <div className="fixed bottom-0 inset-x-0 bg-card border-t border-border p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] flex items-center gap-6 shadow-[0_-5px_20px_rgba(0,0,0,0.3)] z-[100]">
       
       {/* Playback Controls */}
       <div className="flex items-center gap-2">
@@ -199,14 +199,14 @@ export function Controls({
                 <Settings2 className="w-5 h-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="h-auto max-h-[80vh] rounded-t-xl">
-              <SheetHeader className="border-b border-border pb-3 mb-4">
+            <SheetContent side="bottom" className="h-[70vh] max-h-[70vh] rounded-t-xl px-4">
+              <SheetHeader className="border-b border-border pb-3 mb-4 flex-shrink-0">
                 <SheetTitle className="flex items-center gap-2">
                   <Settings2 className="w-5 h-5 text-primary" />
                   音频设置
                 </SheetTitle>
               </SheetHeader>
-              <div className="space-y-5 pb-6">
+              <div className="space-y-5 overflow-y-auto flex-1 pb-[calc(1.5rem+env(safe-area-inset-bottom,20px))]">
                 {/* Emotion Selection */}
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">情感风格</Label>
