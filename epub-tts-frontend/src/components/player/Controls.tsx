@@ -39,7 +39,7 @@ interface ControlsProps {
   chapterTitle?: string; // 章节标题（用于文件名）
 }
 
-const API_BASE = "http://localhost:8000/api";
+import { API_BASE, API_URL } from "@/config";
 
 export function Controls({
   isPlaying, onPlayPause, onNext, onPrev, progress, current, total,
@@ -54,7 +54,7 @@ export function Controls({
   useEffect(() => {
     const loadVoices = async () => {
       try {
-        const response = await fetch(`${API_BASE}/tts/voices/chinese`);
+        const response = await fetch(`${API_URL}/tts/voices/chinese`);
         if (response.ok) {
           const data = await response.json();
           setVoices(data);
@@ -95,7 +95,7 @@ export function Controls({
     toast.info("正在生成音频，请稍候...");
 
     try {
-      const response = await fetch(`${API_BASE}/tts/download`, {
+      const response = await fetch(`${API_URL}/tts/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -114,7 +114,7 @@ export function Controls({
       const data = await response.json();
       
       // 触发下载
-      const downloadUrl = `http://localhost:8000${data.downloadUrl}`;
+      const downloadUrl = `${API_BASE}${data.downloadUrl}`;
       const link = document.createElement("a");
       link.href = downloadUrl;
       link.download = data.filename;

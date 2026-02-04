@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
-const API_BASE = "http://localhost:8000/api";
+import { API_BASE, API_URL } from "@/config";
 
 interface Task {
   id: string;
@@ -34,7 +34,7 @@ export function TasksPanel() {
   // 获取任务列表
   const fetchTasks = async () => {
     try {
-      const response = await fetch(`${API_BASE}/tasks`);
+      const response = await fetch(`${API_URL}/tasks`);
       if (response.ok) {
         const data = await response.json();
         setTasks(data);
@@ -56,7 +56,7 @@ export function TasksPanel() {
   // 删除任务
   const handleDelete = async (taskId: string) => {
     try {
-      const response = await fetch(`${API_BASE}/tasks/${taskId}`, {
+      const response = await fetch(`${API_URL}/tasks/${taskId}`, {
         method: "DELETE"
       });
       if (response.ok) {
@@ -70,7 +70,7 @@ export function TasksPanel() {
   // 下载文件
   const handleDownload = (task: Task) => {
     if (task.result?.downloadUrl) {
-      const downloadUrl = `http://localhost:8000${task.result.downloadUrl}`;
+      const downloadUrl = `${API_BASE}${task.result.downloadUrl}`;
       const link = document.createElement("a");
       link.href = downloadUrl;
       link.download = task.result.filename || "audio.mp3";

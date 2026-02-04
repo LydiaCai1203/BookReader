@@ -16,6 +16,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { translator, type TranslatorConfig, DEFAULT_CONFIG } from "@/lib/translator";
 import { TTSService } from "@/api/services";
 import { TasksPanel } from "@/components/player/TasksPanel";
+import { API_BASE, API_URL } from "@/config";
 
 export default function Home() {
   // Book State
@@ -135,7 +136,7 @@ export default function Home() {
   // 从书架选择已有书籍
   const handleBookSelect = async (bookId: string) => {
     toast.promise(
-      fetch(`http://localhost:8000/api/books/${bookId}`).then(res => {
+      fetch(`${API_URL}/books/${bookId}`).then(res => {
         if (!res.ok) throw new Error("Failed to load book");
         return res.json();
       }),
@@ -145,7 +146,7 @@ export default function Home() {
           setBookId(data.bookId);
           setMetadata(data.metadata);
           setToc(data.toc);
-          if (data.coverUrl) setCover(`http://localhost:8000${data.coverUrl}`);
+          if (data.coverUrl) setCover(`${API_BASE}${data.coverUrl}`);
           
           if (data.toc.length > 0) {
             setCurrentChapterHref(data.toc[0].href);

@@ -2,15 +2,14 @@
  * 真实 API 服务 - 连接后端
  */
 import type { IBookService, ITTSService, TTSOptions, TTSResponse, ChapterContent, BookMetadata, NavItem, WordTimestamp } from "./types";
-
-const API_BASE = "http://localhost:8000/api";
+import { API_BASE, API_URL } from "@/config";
 
 export class BookService implements IBookService {
   async uploadBook(file: File): Promise<{ bookId: string; metadata: BookMetadata; toc: NavItem[]; coverUrl?: string }> {
     const formData = new FormData();
     formData.append("file", file);
 
-    const response = await fetch(`${API_BASE}/books`, {
+    const response = await fetch(`${API_URL}/books`, {
       method: "POST",
       body: formData,
     });
@@ -25,13 +24,13 @@ export class BookService implements IBookService {
       bookId: data.bookId,
       metadata: data.metadata,
       toc: data.toc,
-      coverUrl: data.coverUrl ? `http://localhost:8000${data.coverUrl}` : undefined,
+      coverUrl: data.coverUrl ? `${API_BASE}${data.coverUrl}` : undefined,
     };
   }
 
   async getChapter(bookId: string, href: string): Promise<ChapterContent> {
     const response = await fetch(
-      `${API_BASE}/books/${bookId}/chapters?href=${encodeURIComponent(href)}`
+      `${API_URL}/books/${bookId}/chapters?href=${encodeURIComponent(href)}`
     );
 
     if (!response.ok) {
@@ -50,7 +49,7 @@ export class TTSService implements ITTSService {
   private _currentWordTimestamps: WordTimestamp[] = [];
 
   async getVoices(): Promise<{ name: string; lang: string; gender?: string }[]> {
-    const response = await fetch(`${API_BASE}/tts/voices`);
+    const response = await fetch(`${API_URL}/tts/voices`);
     if (!response.ok) {
       throw new Error("Failed to get voices");
     }
@@ -89,7 +88,7 @@ export class TTSService implements ITTSService {
     // 停止当前播放
     this.stop();
 
-    const response = await fetch(`${API_BASE}/tts/speak`, {
+    const response = await fetch(`${API_URL}/tts/speak`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -109,7 +108,7 @@ export class TTSService implements ITTSService {
     }
 
     const data = await response.json();
-    const audioUrl = `http://localhost:8000${data.audioUrl}`;
+    const audioUrl = `${API_BASE}${data.audioUrl}`;
     const wordTimestamps: WordTimestamp[] = data.wordTimestamps || [];
     
     // 保存时间戳供外部使用

@@ -4,7 +4,9 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-const API_BASE = "http://localhost:8000/api";
+import { API_URL } from "@/config";
+
+const API_BASE = API_URL;
 
 interface BookItem {
   id: string;
