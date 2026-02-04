@@ -133,9 +133,17 @@ ett/
 
 ## 🎨 界面预览
 
-<!-- 可以添加截图 -->
-<!-- ![首页](./screenshots/home.png) -->
-<!-- ![阅读页](./screenshots/reader.png) -->
+### 上传书籍
+![上传书籍](./upload.png)
+
+### 阅读界面
+![阅读界面](./content.png)
+
+### 音频下载
+![音频下载](./download.png)
+
+### LLM 翻译配置
+![LLM配置](./llm%20config.png)
 
 ---
 
