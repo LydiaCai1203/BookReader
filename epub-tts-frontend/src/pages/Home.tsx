@@ -213,14 +213,12 @@ export default function Home() {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
-  // TTS Loop
+  // TTS Loop - 使用更简单的模式避免重复播放
   useEffect(() => {
-    // 如果不在播放状态
+    // 如果不在播放状态，停止并返回
     if (!isPlaying) {
        ttsService.stop();
        playingSentenceRef.current = -1;
-       setWordTimestamps([]);
-       setCurrentTime(0);
        return;
     }
 
@@ -231,14 +229,17 @@ export default function Home() {
        return;
     }
 
+    const text = displayedSentences[currentSentenceIndex];
+    if (!text) return;
+
+    // 使用一个局部变量标记这次 effect 调用的句子索引
+    const thisSentenceIndex = currentSentenceIndex;
+    
     // 如果已经在播放这个句子，不要重复开始
-    if (playingSentenceRef.current === currentSentenceIndex) {
+    if (playingSentenceRef.current === thisSentenceIndex) {
        return;
     }
 
-    const text = displayedSentences[currentSentenceIndex];
-    if (!text) return;
-    
     const getEmotionParams = (e: string) => {
        switch(e) {
           case "warm": return { rate: 0.9 * speed, pitch: 1.05 };
@@ -250,12 +251,11 @@ export default function Home() {
     
     const params = getEmotionParams(emotion);
 
-    // 标记当前正在播放的句子
-    playingSentenceRef.current = currentSentenceIndex;
-    
-    // 先停止之前的音频，再开始新的
+    // 先停止之前的音频
     ttsService.stop();
-    setCurrentTime(0);
+    
+    // 立即标记当前正在播放的句子（在任何异步操作之前）
+    playingSentenceRef.current = thisSentenceIndex;
     
     // 开始播放
     ttsService.speak(text, {
@@ -263,29 +263,31 @@ export default function Home() {
       rate: params.rate,
       pitch: params.pitch
     }).then(() => {
-      // 确保还是在播放同一个句子（没有被切换或取消）
-      if (playingSentenceRef.current !== currentSentenceIndex) return;
-      
-      // 使用 ref 获取最新的 isPlaying 状态（避免闭包陷阱）
-      if (isPlayingRef.current) {
-        playingSentenceRef.current = -1; // 重置，允许下一句开始
-        setWordTimestamps([]);
-        setCurrentTime(0);
-        setCurrentSentenceIndex(prev => prev + 1);
+      // 只有当还在播放这个句子时才继续
+      if (playingSentenceRef.current !== thisSentenceIndex) {
+        return;
       }
+      
+      // 检查是否还在播放状态
+      if (!isPlayingRef.current) {
+        playingSentenceRef.current = -1;
+        return;
+      }
+      
+      // 清理并进入下一句
+      setWordTimestamps([]);
+      setCurrentTime(0);
+      playingSentenceRef.current = -1;
+      setCurrentSentenceIndex(prev => prev + 1);
     }).catch(e => {
-      // 确保还是在播放同一个句子
-      if (playingSentenceRef.current !== currentSentenceIndex) return;
-      console.error(e);
+      if (playingSentenceRef.current !== thisSentenceIndex) {
+        return;
+      }
+      console.error("TTS Error:", e);
       playingSentenceRef.current = -1;
       setIsPlaying(false);
     });
-    
-    // 清理函数：只在组件卸载或停止播放时才真正停止
-    return () => {
-      // 不在这里停止 TTS，让音频自然播放完
-      // ttsService.stop() 会在下一个 effect 开始时调用（如果需要）
-    };
+
   }, [isPlaying, currentSentenceIndex, displayedSentences, voice, speed, emotion]);
 
 

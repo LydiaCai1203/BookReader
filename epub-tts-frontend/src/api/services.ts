@@ -42,11 +42,48 @@ export class BookService implements IBookService {
 }
 
 export class TTSService implements ITTSService {
-  private audio: HTMLAudioElement | null = null;
+  // 复用同一个 Audio 元素，避免移动端浏览器阻止新建 Audio
+  private audio: HTMLAudioElement;
   private currentResolve: (() => void) | null = null;
+  private currentReject: ((e: Error) => void) | null = null;
   private timeUpdateCallback: ((time: number) => void) | null = null;
   private timestampsReadyCallback: ((timestamps: WordTimestamp[]) => void) | null = null;
   private _currentWordTimestamps: WordTimestamp[] = [];
+
+  constructor() {
+    // 在构造函数中创建 Audio 元素，后续复用
+    this.audio = new Audio();
+    this.setupAudioListeners();
+  }
+
+  private setupAudioListeners(): void {
+    // 时间更新事件
+    this.audio.ontimeupdate = () => {
+      if (this.timeUpdateCallback) {
+        this.timeUpdateCallback(this.audio.currentTime * 1000);
+      }
+    };
+
+    // 播放结束事件
+    this.audio.onended = () => {
+      if (this.currentResolve) {
+        const resolve = this.currentResolve;
+        this.currentResolve = null;
+        this.currentReject = null;
+        resolve();
+      }
+    };
+
+    // 错误事件
+    this.audio.onerror = () => {
+      if (this.currentReject) {
+        const reject = this.currentReject;
+        this.currentResolve = null;
+        this.currentReject = null;
+        reject(new Error("Audio playback failed"));
+      }
+    };
+  }
 
   async getVoices(): Promise<{ name: string; lang: string; gender?: string }[]> {
     const response = await fetch(`${API_URL}/tts/voices`);
@@ -81,12 +118,12 @@ export class TTSService implements ITTSService {
    * 获取当前播放时间（毫秒）
    */
   getCurrentTime(): number {
-    return this.audio ? this.audio.currentTime * 1000 : 0;
+    return this.audio.currentTime * 1000;
   }
 
   async speak(text: string, options?: TTSOptions): Promise<TTSResponse> {
-    // 停止当前播放
-    this.stop();
+    // 停止当前播放（但不销毁 Audio 元素）
+    this.stopPlayback();
 
     const response = await fetch(`${API_URL}/tts/speak`, {
       method: "POST",
@@ -119,59 +156,43 @@ export class TTSService implements ITTSService {
       this.timestampsReadyCallback(wordTimestamps);
     }
     
-    // 创建并播放音频
+    // 复用 Audio 元素播放新的音频
     return new Promise((resolve, reject) => {
-      this.audio = new Audio(audioUrl);
       this.currentResolve = () => resolve({
         audioUrl,
         cached: data.cached,
         wordTimestamps,
       });
+      this.currentReject = reject;
 
-      // 时间更新事件 - 用于字词高亮（约 250ms 一次）
-      this.audio.ontimeupdate = () => {
-        if (this.audio && this.timeUpdateCallback) {
-          this.timeUpdateCallback(this.audio.currentTime * 1000);
-        }
-      };
-
-      this.audio.onended = () => {
-        if (this.currentResolve) {
-          this.currentResolve();
-          this.currentResolve = null;
-        }
-      };
-
-      this.audio.onerror = () => {
-        reject(new Error("Audio playback failed"));
-      };
-
-      this.audio.play().catch(reject);
+      // 设置新的音频源并播放
+      this.audio.src = audioUrl;
+      this.audio.load();
+      this.audio.play().catch((e) => {
+        this.currentResolve = null;
+        this.currentReject = null;
+        reject(e);
+      });
     });
   }
 
-  stop(): void {
-    if (this.audio) {
-      // 先移除所有事件监听器，防止触发回调
-      this.audio.ontimeupdate = null;
-      this.audio.onended = null;
-      this.audio.onerror = null;
-      this.audio.onloadeddata = null;
-      
-      // 暂停并重置
-      this.audio.pause();
-      this.audio.currentTime = 0;
-      
-      // 移除 src 并加载空内容，彻底停止
-      this.audio.src = "";
-      this.audio.load();
-      
-      this.audio = null;
-    }
-    
-    // 清除 resolve 回调（不要调用它，让 promise 保持 pending）
+  // 内部方法：停止播放但保留 Audio 元素
+  private stopPlayback(): void {
+    // 清除回调（不要调用它们）
     this.currentResolve = null;
+    this.currentReject = null;
     this._currentWordTimestamps = [];
+    
+    // 暂停当前播放
+    if (!this.audio.paused) {
+      this.audio.pause();
+    }
+    this.audio.currentTime = 0;
+  }
+
+  // 公开方法：停止播放
+  stop(): void {
+    this.stopPlayback();
   }
 }
 
