@@ -18,4 +18,8 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
   base: "./",
   build: { outDir: "dist", emptyOutDir: true },
+  server: {
+    host: "0.0.0.0",
+    port: 5173,
+  },
 });

@@ -94,7 +94,8 @@ npm run dev
 
 ### 3. 访问应用
 
-打开浏览器访问 [http://localhost:5173](http://localhost:5173)
+- 本机访问：[http://localhost:5173](http://localhost:5173)
+- 局域网访问：`http://<你的IP>:5173`（同一网络内的其他设备）
 
 ---
 
