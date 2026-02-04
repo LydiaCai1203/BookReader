@@ -1,0 +1,279 @@
+import { useState, useEffect } from "react";
+import { Play, Pause, SkipBack, SkipForward, Settings2, Download, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+
+export type EmotionType = "neutral" | "warm" | "excited" | "serious" | "suspense";
+
+// 后端返回的语音类型
+interface VoiceOption {
+  name: string;
+  displayName: string;
+  gender: string;
+  lang: string;
+}
+
+interface ControlsProps {
+  isPlaying: boolean;
+  onPlayPause: () => void;
+  onNext: () => void;
+  onPrev: () => void;
+  progress: number; // 0-100
+  total: number;
+  current: number;
+  
+  // Settings props
+  selectedVoice: string | null;
+  onVoiceChange: (voice: string) => void;
+  emotion: EmotionType;
+  onEmotionChange: (emotion: EmotionType) => void;
+  speed: number;
+  onSpeedChange: (speed: number) => void;
+  
+  // Download props
+  sentences?: string[];  // 当前章节的所有句子
+  chapterTitle?: string; // 章节标题（用于文件名）
+}
+
+const API_BASE = "http://localhost:8000/api";
+
+export function Controls({
+  isPlaying, onPlayPause, onNext, onPrev, progress, current, total,
+  selectedVoice, onVoiceChange, emotion, onEmotionChange, speed, onSpeedChange,
+  sentences = [], chapterTitle = "chapter"
+}: ControlsProps) {
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [isLoadingVoices, setIsLoadingVoices] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  // 从后端 API 获取中文语音列表
+  useEffect(() => {
+    const loadVoices = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/tts/voices/chinese`);
+        if (response.ok) {
+          const data = await response.json();
+          setVoices(data);
+          // 如果还没选择语音，默认选择第一个（晓晓）
+          if (!selectedVoice && data.length > 0) {
+            onVoiceChange(data[0].name);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load voices:", error);
+      } finally {
+        setIsLoadingVoices(false);
+      }
+    };
+    loadVoices();
+  }, []);
+
+  // 按地区分组语音
+  const groupedVoices = voices.reduce((acc, voice) => {
+    let group = "普通话";
+    if (voice.lang.includes("HK")) group = "粤语";
+    else if (voice.lang.includes("TW")) group = "台湾";
+    else if (voice.lang.includes("liaoning") || voice.lang.includes("shaanxi")) group = "方言";
+    
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(voice);
+    return acc;
+  }, {} as Record<string, VoiceOption[]>);
+
+  // 下载章节音频
+  const handleDownload = async () => {
+    if (sentences.length === 0) {
+      toast.error("没有可下载的内容");
+      return;
+    }
+
+    setIsDownloading(true);
+    toast.info("正在生成音频，请稍候...");
+
+    try {
+      const response = await fetch(`${API_BASE}/tts/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sentences,
+          voice: selectedVoice || "zh-CN-XiaoxiaoNeural",
+          rate: speed,
+          pitch: 1.0,
+          filename: chapterTitle
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("生成失败");
+      }
+
+      const data = await response.json();
+      
+      // 触发下载
+      const downloadUrl = `http://localhost:8000${data.downloadUrl}`;
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = data.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast.success(`下载完成 (${data.sizeFormatted})`);
+    } catch (error) {
+      console.error("Download error:", error);
+      toast.error("下载失败，请重试");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  return (
+    <div className="w-full bg-card border-t border-border p-4 flex items-center gap-6 shadow-[0_-5px_20px_rgba(0,0,0,0.3)] z-50">
+      
+      {/* Playback Controls */}
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="icon" onClick={onPrev} className="rounded-none border-primary/20 hover:border-primary hover:text-primary hover:bg-primary/10">
+          <SkipBack className="w-4 h-4" />
+        </Button>
+        <Button 
+          size="icon" 
+          onClick={onPlayPause} 
+          className="w-12 h-12 rounded-none bg-primary text-primary-foreground hover:bg-primary/90 border border-transparent hover:border-white/20 shadow-[0_0_15px_rgba(204,255,0,0.4)]"
+        >
+          {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
+        </Button>
+        <Button variant="outline" size="icon" onClick={onNext} className="rounded-none border-primary/20 hover:border-primary hover:text-primary hover:bg-primary/10">
+          <SkipForward className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {/* Progress */}
+      <div className="flex-1 flex flex-col gap-1">
+        <div className="flex justify-between text-[10px] font-mono text-muted-foreground tracking-wider">
+          <span>第 {current + 1} / {total} 句</span>
+          <span>进度 {Math.round(progress)}%</span>
+        </div>
+        <div className="h-2 bg-secondary w-full relative overflow-hidden group">
+            {/* Background grid */}
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent_2px,var(--color-background)_2px)] bg-[length:4px_100%] opacity-20" />
+            
+            {/* Active bar */}
+            <div 
+              className="absolute top-0 left-0 h-full bg-primary transition-all duration-300 ease-out shadow-[0_0_10px_var(--color-primary)]"
+              style={{ width: `${progress}%` }} 
+            />
+        </div>
+      </div>
+
+      {/* Download & Settings */}
+      <div className="flex items-center gap-2">
+        {/* Download Button */}
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={handleDownload}
+          disabled={isDownloading || sentences.length === 0}
+          className="hover:bg-primary/10 hover:text-primary transition-colors"
+          title="下载本章音频"
+        >
+          {isDownloading ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Download className="w-5 h-5" />
+          )}
+        </Button>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon" className="hover:bg-primary/10 hover:text-primary transition-colors">
+               <Settings2 className="w-5 h-5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-0 border border-primary/20 bg-card/95 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] rounded-none" side="top" align="end">
+            <div className="p-4 space-y-4">
+              <div className="flex items-center justify-between border-b border-border pb-2 mb-2">
+                 <h4 className="font-bold text-sm tracking-wide">音频设置</h4>
+                 <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+              </div>
+
+              {/* Emotion Selection */}
+              <div className="space-y-2">
+                <Label className="text-xs font-mono text-muted-foreground">情感风格</Label>
+                <Select value={emotion} onValueChange={(v) => onEmotionChange(v as EmotionType)}>
+                  <SelectTrigger className="rounded-none border-primary/20 bg-background/50 focus:ring-primary/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-none border-primary/20 bg-card">
+                    {[
+                      { value: "neutral", label: "自然" },
+                      { value: "warm", label: "温暖" },
+                      { value: "excited", label: "兴奋" },
+                      { value: "serious", label: "严肃" },
+                      { value: "suspense", label: "悬疑" },
+                    ].map(item => (
+                       <SelectItem key={item.value} value={item.value} className="text-sm cursor-pointer hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary rounded-none">
+                         {item.label}
+                       </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Speed Override */}
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                   <Label className="text-xs font-mono text-muted-foreground">语速调节</Label>
+                   <span className="text-xs font-mono text-primary">{speed.toFixed(1)}x</span>
+                </div>
+                <Slider 
+                  value={[speed]} 
+                  onValueChange={([v]) => onSpeedChange(v)} 
+                  min={0.5} 
+                  max={2.0} 
+                  step={0.1}
+                  className="[&_.range-thumb]:bg-primary [&_.range-track]:bg-secondary [&_.range-range]:bg-primary" 
+                />
+              </div>
+
+              {/* Voice Selection */}
+              <div className="space-y-2">
+                <Label className="text-xs font-mono uppercase text-muted-foreground">语音选择</Label>
+                <Select value={selectedVoice || ""} onValueChange={onVoiceChange}>
+                  <SelectTrigger className="rounded-none border-primary/20 bg-background/50 focus:ring-primary/50">
+                    <SelectValue placeholder={isLoadingVoices ? "加载中..." : "选择语音"} />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-none border-primary/20 bg-card max-h-[280px]">
+                    {Object.entries(groupedVoices).map(([group, vs]) => (
+                        <div key={group}>
+                           <div className="px-2 py-1.5 text-[11px] bg-secondary font-medium text-muted-foreground sticky top-0">
+                             {group}
+                           </div>
+                           {vs.map(v => (
+                               <SelectItem 
+                                 key={v.name} 
+                                 value={v.name} 
+                                 className="text-sm rounded-none focus:bg-primary/10 focus:text-primary cursor-pointer"
+                               >
+                                 <span className="flex items-center gap-2">
+                                   <span className="text-muted-foreground">{v.gender === "Female" ? "♀" : "♂"}</span>
+                                   <span>{v.displayName}</span>
+                                 </span>
+                               </SelectItem>
+                           ))}
+                        </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </div>
+  );
+}
