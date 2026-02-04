@@ -33,6 +33,7 @@ export default function Home() {
   // Player State
   const [isPlaying, setIsPlaying] = useState(false);
   const isPlayingRef = useRef(false);
+  const playingSentenceRef = useRef<number>(-1); // 当前正在播放的句子索引
   const [voice, setVoice] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1.0);
   const [emotion, setEmotion] = useState<"neutral" | "warm" | "excited" | "serious" | "suspense">("neutral");
@@ -214,18 +215,24 @@ export default function Home() {
 
   // TTS Loop
   useEffect(() => {
-    // 用于标记当前 effect 是否已被取消
-    let cancelled = false;
-    
+    // 如果不在播放状态
     if (!isPlaying) {
        ttsService.stop();
+       playingSentenceRef.current = -1;
        setWordTimestamps([]);
        setCurrentTime(0);
        return;
     }
 
+    // 如果已经播放完所有句子
     if (currentSentenceIndex >= displayedSentences.length) {
        setIsPlaying(false);
+       playingSentenceRef.current = -1;
+       return;
+    }
+
+    // 如果已经在播放这个句子，不要重复开始
+    if (playingSentenceRef.current === currentSentenceIndex) {
        return;
     }
 
@@ -243,6 +250,9 @@ export default function Home() {
     
     const params = getEmotionParams(emotion);
 
+    // 标记当前正在播放的句子
+    playingSentenceRef.current = currentSentenceIndex;
+    
     // 先停止之前的音频，再开始新的
     ttsService.stop();
     setCurrentTime(0);
@@ -253,25 +263,28 @@ export default function Home() {
       rate: params.rate,
       pitch: params.pitch
     }).then(() => {
-      // 如果 effect 已被取消（比如参数变化了），不要进入下一句
-      if (cancelled) return;
+      // 确保还是在播放同一个句子（没有被切换或取消）
+      if (playingSentenceRef.current !== currentSentenceIndex) return;
       
       // 使用 ref 获取最新的 isPlaying 状态（避免闭包陷阱）
       if (isPlayingRef.current) {
+        playingSentenceRef.current = -1; // 重置，允许下一句开始
         setWordTimestamps([]);
         setCurrentTime(0);
         setCurrentSentenceIndex(prev => prev + 1);
       }
     }).catch(e => {
-      if (cancelled) return;
+      // 确保还是在播放同一个句子
+      if (playingSentenceRef.current !== currentSentenceIndex) return;
       console.error(e);
+      playingSentenceRef.current = -1;
       setIsPlaying(false);
     });
     
-    // 清理函数：当 effect 重新运行或组件卸载时调用
+    // 清理函数：只在组件卸载或停止播放时才真正停止
     return () => {
-      cancelled = true;
-      ttsService.stop();
+      // 不在这里停止 TTS，让音频自然播放完
+      // ttsService.stop() 会在下一个 effect 开始时调用（如果需要）
     };
   }, [isPlaying, currentSentenceIndex, displayedSentences, voice, speed, emotion]);
 
