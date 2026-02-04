@@ -132,7 +132,7 @@ export function Controls({
   };
 
   return (
-    <div className="w-full bg-card border-t border-border p-4 flex items-center gap-6 shadow-[0_-5px_20px_rgba(0,0,0,0.3)] z-50">
+    <div className="fixed bottom-0 inset-x-0 bg-card border-t border-border p-4 flex items-center gap-6 shadow-[0_-5px_20px_rgba(0,0,0,0.3)] z-[100]">
       
       {/* Playback Controls */}
       <div className="flex items-center gap-2">

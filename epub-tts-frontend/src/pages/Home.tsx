@@ -334,7 +334,8 @@ export default function Home() {
   }
 
   return (
-    <div className="h-screen w-screen bg-background text-foreground flex flex-col overflow-hidden relative">
+    <>
+    <div className="h-[100dvh] w-screen bg-background text-foreground flex flex-col overflow-hidden relative pb-[72px]">
       <ResizablePanelGroup direction="horizontal" className="flex-1">
         {!isMobile && (
           <>
@@ -434,26 +435,27 @@ export default function Home() {
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-
-      <Controls 
-        isPlaying={isPlaying}
-        onPlayPause={togglePlay}
-        onNext={handleNext}
-        onPrev={handlePrev}
-        current={currentSentenceIndex}
-        total={displayedSentences.length}
-        progress={displayedSentences.length > 0 ? (currentSentenceIndex / displayedSentences.length) * 100 : 0}
-        
-        selectedVoice={voice}
-        onVoiceChange={setVoice}
-        emotion={emotion}
-        onEmotionChange={(e) => setEmotion(e)}
-        speed={speed}
-        onSpeedChange={setSpeed}
-        
-        sentences={displayedSentences}
-        chapterTitle={metadata?.title || "chapter"}
-      />
     </div>
+
+    <Controls 
+      isPlaying={isPlaying}
+      onPlayPause={togglePlay}
+      onNext={handleNext}
+      onPrev={handlePrev}
+      current={currentSentenceIndex}
+      total={displayedSentences.length}
+      progress={displayedSentences.length > 0 ? (currentSentenceIndex / displayedSentences.length) * 100 : 0}
+      
+      selectedVoice={voice}
+      onVoiceChange={setVoice}
+      emotion={emotion}
+      onEmotionChange={(e) => setEmotion(e)}
+      speed={speed}
+      onSpeedChange={setSpeed}
+      
+      sentences={displayedSentences}
+      chapterTitle={metadata?.title || "chapter"}
+    />
+    </>
   );
 }
