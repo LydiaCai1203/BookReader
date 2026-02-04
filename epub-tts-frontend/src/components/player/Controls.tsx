@@ -3,9 +3,11 @@ import { Play, Pause, SkipBack, SkipForward, Settings2, Download, Loader2 } from
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export type EmotionType = "neutral" | "warm" | "excited" | "serious" | "suspense";
 
@@ -49,6 +51,8 @@ export function Controls({
   const [voices, setVoices] = useState<VoiceOption[]>([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   // 从后端 API 获取中文语音列表
   useEffect(() => {
@@ -187,92 +191,186 @@ export function Controls({
           )}
         </Button>
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="hover:bg-primary/10 hover:text-primary transition-colors">
-               <Settings2 className="w-5 h-5" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-80 p-0 border border-primary/20 bg-card/95 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] rounded-none" side="top" align="end">
-            <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between border-b border-border pb-2 mb-2">
-                 <h4 className="font-bold text-sm tracking-wide">音频设置</h4>
-                 <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-              </div>
-
-              {/* Emotion Selection */}
-              <div className="space-y-2">
-                <Label className="text-xs font-mono text-muted-foreground">情感风格</Label>
-                <Select value={emotion} onValueChange={(v) => onEmotionChange(v as EmotionType)}>
-                  <SelectTrigger className="rounded-none border-primary/20 bg-background/50 focus:ring-primary/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-none border-primary/20 bg-card">
-                    {[
-                      { value: "neutral", label: "自然" },
-                      { value: "warm", label: "温暖" },
-                      { value: "excited", label: "兴奋" },
-                      { value: "serious", label: "严肃" },
-                      { value: "suspense", label: "悬疑" },
-                    ].map(item => (
-                       <SelectItem key={item.value} value={item.value} className="text-sm cursor-pointer hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary rounded-none">
-                         {item.label}
-                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Speed Override */}
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                   <Label className="text-xs font-mono text-muted-foreground">语速调节</Label>
-                   <span className="text-xs font-mono text-primary">{speed.toFixed(1)}x</span>
+        {/* 设置面板 - 移动端用 Sheet，桌面端用 Popover */}
+        {isMobile ? (
+          <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="hover:bg-primary/10 hover:text-primary transition-colors">
+                <Settings2 className="w-5 h-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="h-auto max-h-[80vh] rounded-t-xl">
+              <SheetHeader className="border-b border-border pb-3 mb-4">
+                <SheetTitle className="flex items-center gap-2">
+                  <Settings2 className="w-5 h-5 text-primary" />
+                  音频设置
+                </SheetTitle>
+              </SheetHeader>
+              <div className="space-y-5 pb-6">
+                {/* Emotion Selection */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">情感风格</Label>
+                  <Select value={emotion} onValueChange={(v) => onEmotionChange(v as EmotionType)}>
+                    <SelectTrigger className="h-12 text-base">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[
+                        { value: "neutral", label: "自然" },
+                        { value: "warm", label: "温暖" },
+                        { value: "excited", label: "兴奋" },
+                        { value: "serious", label: "严肃" },
+                        { value: "suspense", label: "悬疑" },
+                      ].map(item => (
+                        <SelectItem key={item.value} value={item.value} className="text-base py-3">
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Slider 
-                  value={[speed]} 
-                  onValueChange={([v]) => onSpeedChange(v)} 
-                  min={0.5} 
-                  max={2.0} 
-                  step={0.1}
-                  className="[&_.range-thumb]:bg-primary [&_.range-track]:bg-secondary [&_.range-range]:bg-primary" 
-                />
-              </div>
 
-              {/* Voice Selection */}
-              <div className="space-y-2">
-                <Label className="text-xs font-mono uppercase text-muted-foreground">语音选择</Label>
-                <Select value={selectedVoice || ""} onValueChange={onVoiceChange}>
-                  <SelectTrigger className="rounded-none border-primary/20 bg-background/50 focus:ring-primary/50">
-                    <SelectValue placeholder={isLoadingVoices ? "加载中..." : "选择语音"} />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-none border-primary/20 bg-card max-h-[280px]">
-                    {Object.entries(groupedVoices).map(([group, vs]) => (
+                {/* Speed Override */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <Label className="text-sm font-medium">语速调节</Label>
+                    <span className="text-sm font-mono text-primary font-bold">{speed.toFixed(1)}x</span>
+                  </div>
+                  <Slider 
+                    value={[speed]} 
+                    onValueChange={([v]) => onSpeedChange(v)} 
+                    min={0.5} 
+                    max={2.0} 
+                    step={0.1}
+                    className="py-2"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>0.5x</span>
+                    <span>1.0x</span>
+                    <span>2.0x</span>
+                  </div>
+                </div>
+
+                {/* Voice Selection */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">语音选择</Label>
+                  <Select value={selectedVoice || ""} onValueChange={onVoiceChange}>
+                    <SelectTrigger className="h-12 text-base">
+                      <SelectValue placeholder={isLoadingVoices ? "加载中..." : "选择语音"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[40vh]">
+                      {Object.entries(groupedVoices).map(([group, vs]) => (
                         <div key={group}>
-                           <div className="px-2 py-1.5 text-[11px] bg-secondary font-medium text-muted-foreground sticky top-0">
-                             {group}
-                           </div>
-                           {vs.map(v => (
-                               <SelectItem 
-                                 key={v.name} 
-                                 value={v.name} 
-                                 className="text-sm rounded-none focus:bg-primary/10 focus:text-primary cursor-pointer"
-                               >
-                                 <span className="flex items-center gap-2">
-                                   <span className="text-muted-foreground">{v.gender === "Female" ? "♀" : "♂"}</span>
-                                   <span>{v.displayName}</span>
-                                 </span>
-                               </SelectItem>
-                           ))}
+                          <div className="px-2 py-2 text-xs bg-secondary font-medium text-muted-foreground sticky top-0">
+                            {group}
+                          </div>
+                          {vs.map(v => (
+                            <SelectItem 
+                              key={v.name} 
+                              value={v.name} 
+                              className="text-base py-3"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="text-muted-foreground">{v.gender === "Female" ? "♀" : "♂"}</span>
+                                <span>{v.displayName}</span>
+                              </span>
+                            </SelectItem>
+                          ))}
                         </div>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              
-            </div>
-          </PopoverContent>
-        </Popover>
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="hover:bg-primary/10 hover:text-primary transition-colors">
+                <Settings2 className="w-5 h-5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-0 border border-primary/20 bg-card/95 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] rounded-none" side="top" align="end">
+              <div className="p-4 space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-2 mb-2">
+                  <h4 className="font-bold text-sm tracking-wide">音频设置</h4>
+                  <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+                </div>
+
+                {/* Emotion Selection */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-mono text-muted-foreground">情感风格</Label>
+                  <Select value={emotion} onValueChange={(v) => onEmotionChange(v as EmotionType)}>
+                    <SelectTrigger className="rounded-none border-primary/20 bg-background/50 focus:ring-primary/50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-none border-primary/20 bg-card">
+                      {[
+                        { value: "neutral", label: "自然" },
+                        { value: "warm", label: "温暖" },
+                        { value: "excited", label: "兴奋" },
+                        { value: "serious", label: "严肃" },
+                        { value: "suspense", label: "悬疑" },
+                      ].map(item => (
+                        <SelectItem key={item.value} value={item.value} className="text-sm cursor-pointer hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary rounded-none">
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Speed Override */}
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <Label className="text-xs font-mono text-muted-foreground">语速调节</Label>
+                    <span className="text-xs font-mono text-primary">{speed.toFixed(1)}x</span>
+                  </div>
+                  <Slider 
+                    value={[speed]} 
+                    onValueChange={([v]) => onSpeedChange(v)} 
+                    min={0.5} 
+                    max={2.0} 
+                    step={0.1}
+                    className="[&_.range-thumb]:bg-primary [&_.range-track]:bg-secondary [&_.range-range]:bg-primary" 
+                  />
+                </div>
+
+                {/* Voice Selection */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-mono uppercase text-muted-foreground">语音选择</Label>
+                  <Select value={selectedVoice || ""} onValueChange={onVoiceChange}>
+                    <SelectTrigger className="rounded-none border-primary/20 bg-background/50 focus:ring-primary/50">
+                      <SelectValue placeholder={isLoadingVoices ? "加载中..." : "选择语音"} />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-none border-primary/20 bg-card max-h-[280px]">
+                      {Object.entries(groupedVoices).map(([group, vs]) => (
+                        <div key={group}>
+                          <div className="px-2 py-1.5 text-[11px] bg-secondary font-medium text-muted-foreground sticky top-0">
+                            {group}
+                          </div>
+                          {vs.map(v => (
+                            <SelectItem 
+                              key={v.name} 
+                              value={v.name} 
+                              className="text-sm rounded-none focus:bg-primary/10 focus:text-primary cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="text-muted-foreground">{v.gender === "Female" ? "♀" : "♂"}</span>
+                                <span>{v.displayName}</span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </div>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
     </div>
   );

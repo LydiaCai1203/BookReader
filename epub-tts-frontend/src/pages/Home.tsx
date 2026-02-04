@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { UploadZone } from "@/components/player/UploadZone";
 import { Sidebar } from "@/components/player/Sidebar";
 import { Reader } from "@/components/player/Reader";
@@ -32,6 +32,7 @@ export default function Home() {
   
   // Player State
   const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef(false);
   const [voice, setVoice] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1.0);
   const [emotion, setEmotion] = useState<"neutral" | "warm" | "excited" | "serious" | "suspense">("neutral");
@@ -206,6 +207,11 @@ export default function Home() {
     };
   }, [handleTimeUpdate, handleTimestampsReady]);
 
+  // 保持 ref 与 state 同步
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
   // TTS Loop
   useEffect(() => {
     // 用于标记当前 effect 是否已被取消
@@ -250,8 +256,8 @@ export default function Home() {
       // 如果 effect 已被取消（比如参数变化了），不要进入下一句
       if (cancelled) return;
       
-      // 播放完成后进入下一句
-      if (isPlaying) {
+      // 使用 ref 获取最新的 isPlaying 状态（避免闭包陷阱）
+      if (isPlayingRef.current) {
         setWordTimestamps([]);
         setCurrentTime(0);
         setCurrentSentenceIndex(prev => prev + 1);
