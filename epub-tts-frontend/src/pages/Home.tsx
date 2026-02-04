@@ -330,6 +330,9 @@ export default function Home() {
     );
   }
 
+  // 移动端侧边栏状态
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="h-screen w-screen bg-background text-foreground flex flex-col overflow-hidden relative">
       <ResizablePanelGroup direction="horizontal" className="flex-1">
@@ -358,6 +361,38 @@ export default function Home() {
         
         <ResizablePanel defaultSize={80}>
           <div className="h-full flex flex-col relative">
+             {/* 移动端：左上角目录按钮 */}
+             {isMobile && (
+               <div className="absolute top-4 left-4 z-10">
+                 <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+                   <SheetTrigger asChild>
+                     <Button variant="outline" size="sm" className="bg-background/50 backdrop-blur border-primary/20 hover:border-primary hover:bg-primary/10">
+                       <Menu className="w-4 h-4" />
+                     </Button>
+                   </SheetTrigger>
+                   <SheetContent side="left" className="w-[300px] p-0">
+                     <Sidebar 
+                       toc={toc} 
+                       currentChapterHref={currentChapterHref || ""}
+                       onSelectChapter={(href) => { 
+                          ttsService.stop();
+                          setCurrentChapterHref(href); 
+                          setCurrentSentenceIndex(0);
+                          setIsPlaying(false);
+                          setMobileMenuOpen(false); // 选择后关闭菜单
+                       }}
+                       coverUrl={cover}
+                       title={metadata.title}
+                       bookId={bookId || undefined}
+                       selectedVoice={voice || undefined}
+                       speed={speed}
+                     />
+                   </SheetContent>
+                 </Sheet>
+               </div>
+             )}
+
+             {/* 右上角按钮组 */}
              <div className="absolute top-4 right-4 z-10 flex gap-2">
                  <a 
                    href="https://github.com/LydiaCai1203/BookReader" 
