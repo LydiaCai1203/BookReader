@@ -88,14 +88,20 @@ cd epub-tts-frontend
 # 安装依赖
 npm install
 
-# 启动开发服务器
+# 方式一：开发模式（热更新，适合开发）
 npm run dev
+
+# 方式二：生产模式（构建后预览，适合部署）
+npm run build
+npm run preview
 ```
 
 ### 3. 访问应用
 
-- 本机访问：[http://localhost:5173](http://localhost:5173)
-- 局域网访问：`http://<你的IP>:5173`（同一网络内的其他设备）
+- 本机访问：[http://localhost:8888](http://localhost:8888)
+- 局域网访问：`http://<你的IP>:8888`（同一网络内的其他设备）
+
+> 💡 **生产部署**：运行 `npm run build` 后，可将 `dist/` 目录部署到任意静态服务器（Nginx、Caddy、Vercel 等）
 
 ---
 
