@@ -4,9 +4,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-import { API_URL } from "@/config";
-
-const API_BASE = API_URL;
+import { API_BASE, API_URL } from "@/config";
 
 interface BookItem {
   id: string;
@@ -32,7 +30,7 @@ export function UploadZone({ onFileSelect, onDemoSelect, onBookSelect }: UploadZ
   useEffect(() => {
     const fetchBooks = async () => {
       try {
-        const response = await fetch(`${API_BASE}/books`);
+        const response = await fetch(`${API_URL}/books`);
         if (response.ok) {
           const data = await response.json();
           setBooks(data);
@@ -52,7 +50,7 @@ export function UploadZone({ onFileSelect, onDemoSelect, onBookSelect }: UploadZ
     if (!confirm("确定要删除这本书吗？")) return;
     
     try {
-      const response = await fetch(`${API_BASE}/books/${bookId}`, {
+      const response = await fetch(`${API_URL}/books/${bookId}`, {
         method: "DELETE"
       });
       if (response.ok) {
@@ -172,7 +170,7 @@ export function UploadZone({ onFileSelect, onDemoSelect, onBookSelect }: UploadZ
                 <div className="aspect-[3/4] bg-secondary overflow-hidden">
                   {book.coverUrl ? (
                     <img 
-                      src={book.coverUrl} 
+                      src={book.coverUrl.startsWith('http') ? book.coverUrl : `${API_BASE}${book.coverUrl}`} 
                       alt={book.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
