@@ -154,32 +154,33 @@ export function Reader({ sentences, current, wordTimestamps = [], currentTime = 
   };
 
   return (
-    <div className="h-full w-full flex flex-col bg-background">
+    <div className="h-full w-full flex flex-col bg-background overflow-hidden">
       {/* 视图切换按钮 */}
       {htmlContent && (
-        <div className="flex justify-center gap-2 py-2 border-b border-border bg-card/50">
+        <div className="flex-shrink-0 flex items-center justify-center gap-2 py-2 border-b border-border bg-card/50">
           <Button
             variant={viewMode === "play" ? "default" : "ghost"}
             size="sm"
             onClick={() => setViewMode("play")}
-            className="text-xs"
+            className="text-xs inline-flex items-center"
           >
             <Headphones className="w-3.5 h-3.5 mr-1" />
-            播放视图
+            <span>播放视图</span>
           </Button>
           <Button
             variant={viewMode === "read" ? "default" : "ghost"}
             size="sm"
             onClick={() => setViewMode("read")}
-            className="text-xs"
+            className="text-xs inline-flex items-center"
           >
             <BookOpen className="w-3.5 h-3.5 mr-1" />
-            阅读视图
+            <span>阅读视图</span>
           </Button>
         </div>
       )}
       
-      <ScrollArea className="flex-1 w-full px-4 md:px-12 py-8 relative" ref={scrollRef}>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea className="h-full w-full px-4 md:px-12 py-8" ref={scrollRef}>
         {viewMode === "read" && htmlContent ? (
           // 阅读视图：显示原始 HTML（包含图片）
           <div 
@@ -241,7 +242,8 @@ export function Reader({ sentences, current, wordTimestamps = [], currentTime = 
             })}
           </div>
         )}
-      </ScrollArea>
+        </ScrollArea>
+      </div>
     </div>
   );
 }
