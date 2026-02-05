@@ -344,13 +344,39 @@ class BookService:
         # 按段落分割（双换行分隔）
         paragraphs = re.split(r'\n\s*\n', text)
         
-        # 每个段落作为一个独立单元
+        # 最大段落长度（超过则按句号分割）
+        MAX_PARAGRAPH_LENGTH = 300
+        
+        # 每个段落作为一个独立单元，超长段落按句号分割
         sentences = []
         for para in paragraphs:
-            # 合并段落内的换行（保持为一个整体）
+            # 合并段落内的换行
             para = ' '.join(line.strip() for line in para.split('\n') if line.strip())
-            if para:
+            if not para:
+                continue
+            
+            # 如果段落不超过 300 字，保持原样
+            if len(para) <= MAX_PARAGRAPH_LENGTH:
                 sentences.append(para)
+            else:
+                # 超长段落：按全角标点（。！？）分割
+                # 使用正则保留分隔符
+                parts = re.split(r'([。！？])', para)
+                
+                # 重新组合：把标点符号附加到前面的句子
+                current_sentence = ""
+                for i, part in enumerate(parts):
+                    if part in '。！？':
+                        current_sentence += part
+                        if current_sentence.strip():
+                            sentences.append(current_sentence.strip())
+                        current_sentence = ""
+                    else:
+                        current_sentence += part
+                
+                # 处理最后一部分（可能没有标点结尾）
+                if current_sentence.strip():
+                    sentences.append(current_sentence.strip())
         
         # 如果没有段落，返回整个文本
         if not sentences and text.strip():
