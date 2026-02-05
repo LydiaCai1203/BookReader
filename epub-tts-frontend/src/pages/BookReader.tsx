@@ -355,7 +355,7 @@ export default function BookReader() {
         <div className="flex items-center gap-2">
           <TranslationSettings 
             config={transConfig} 
-            onChange={handleConfigChange}
+            onConfigChange={handleConfigChange}
           />
           <TasksPanel />
         </div>

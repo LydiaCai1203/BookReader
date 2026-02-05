@@ -127,7 +127,7 @@ export default function Home() {
           <h2 className="text-lg font-semibold mb-4 text-foreground">上传新书</h2>
           <UploadZone 
             onFileSelect={handleFileSelect} 
-            isLoading={uploadMutation.isPending} 
+            onDemoSelect={() => {}}
           />
         </section>
 
