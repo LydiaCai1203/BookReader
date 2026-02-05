@@ -36,9 +36,11 @@ interface ControlsProps {
   speed: number;
   onSpeedChange: (speed: number) => void;
   
-  // Download props
-  sentences?: string[];  // 当前章节的所有句子
-  chapterTitle?: string; // 章节标题（用于文件名）
+  // Download props (智能下载)
+  bookId?: string | null;      // 书籍 ID
+  chapterHref?: string | null; // 章节 href
+  sentences?: string[];        // 当前章节的所有句子（用于判断是否可下载）
+  chapterTitle?: string;       // 章节标题（用于文件名）
 }
 
 import { API_BASE, API_URL } from "@/config";
@@ -46,7 +48,7 @@ import { API_BASE, API_URL } from "@/config";
 export function Controls({
   isPlaying, onPlayPause, onNext, onPrev, progress, current, total,
   selectedVoice, onVoiceChange, emotion, onEmotionChange, speed, onSpeedChange,
-  sentences = [], chapterTitle = "chapter"
+  bookId, chapterHref, sentences = [], chapterTitle = "chapter"
 }: ControlsProps) {
   const [voices, setVoices] = useState<VoiceOption[]>([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState(true);
@@ -88,22 +90,29 @@ export function Controls({
     return acc;
   }, {} as Record<string, VoiceOption[]>);
 
-  // 下载章节音频
+  // 下载章节音频（智能复用已缓存的段落）
   const handleDownload = async () => {
     if (sentences.length === 0) {
       toast.error("没有可下载的内容");
       return;
     }
 
+    if (!bookId || !chapterHref) {
+      toast.error("请先选择章节");
+      return;
+    }
+
     setIsDownloading(true);
-    toast.info("正在生成音频，请稍候...");
+    toast.info("正在生成音频（复用已播放的内容）...");
 
     try {
-      const response = await fetch(`${API_URL}/tts/download`, {
+      // 使用智能下载接口：复用已缓存的段落
+      const response = await fetch(`${API_URL}/tts/download/chapter`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sentences,
+          book_id: bookId,
+          chapter_href: chapterHref,
           voice: selectedVoice || "zh-CN-XiaoxiaoNeural",
           rate: speed,
           pitch: 1.0,
@@ -117,6 +126,11 @@ export function Controls({
 
       const data = await response.json();
       
+      // 显示缓存复用信息
+      const cacheInfo = data.cachedParagraphs > 0 
+        ? `（复用了 ${data.cachedParagraphs}/${data.totalParagraphs} 段已缓存内容）` 
+        : "";
+      
       // 触发下载
       const downloadUrl = `${API_BASE}${data.downloadUrl}`;
       const link = document.createElement("a");
@@ -126,7 +140,7 @@ export function Controls({
       link.click();
       document.body.removeChild(link);
 
-      toast.success(`下载完成 (${data.sizeFormatted})`);
+      toast.success(`下载完成 ${data.sizeFormatted} ${cacheInfo}`);
     } catch (error) {
       console.error("Download error:", error);
       toast.error("下载失败，请重试");
@@ -180,9 +194,9 @@ export function Controls({
           variant="ghost" 
           size="icon" 
           onClick={handleDownload}
-          disabled={isDownloading || sentences.length === 0}
+          disabled={isDownloading || sentences.length === 0 || !bookId || !chapterHref}
           className="hover:bg-primary/10 hover:text-primary transition-colors"
-          title="下载本章音频"
+          title="下载本章音频（智能复用已播放内容）"
         >
           {isDownloading ? (
             <Loader2 className="w-5 h-5 animate-spin" />

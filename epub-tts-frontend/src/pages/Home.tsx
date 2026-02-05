@@ -257,11 +257,14 @@ export default function Home() {
     // 立即标记当前正在播放的句子（在任何异步操作之前）
     playingSentenceRef.current = thisSentenceIndex;
     
-    // 开始播放
+    // 开始播放（传入书籍/章节/段落信息用于结构化缓存）
     ttsService.speak(text, {
       voice: voice || undefined,
       rate: params.rate,
-      pitch: params.pitch
+      pitch: params.pitch,
+      book_id: bookId || undefined,
+      chapter_href: currentChapterHref || undefined,
+      paragraph_index: thisSentenceIndex,
     }).then(() => {
       // 只有当还在播放这个句子时才继续
       if (playingSentenceRef.current !== thisSentenceIndex) {
@@ -474,6 +477,8 @@ export default function Home() {
       speed={speed}
       onSpeedChange={setSpeed}
       
+      bookId={bookId}
+      chapterHref={currentChapterHref}
       sentences={displayedSentences}
       chapterTitle={metadata?.title || "chapter"}
     />

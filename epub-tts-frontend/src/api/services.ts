@@ -136,6 +136,10 @@ export class TTSService implements ITTSService {
         rate: options?.rate || 1.0,
         pitch: options?.pitch || 1.0,
         volume: options?.volume || 1.0,
+        // 可选的书籍/章节/段落信息（用于结构化缓存）
+        book_id: options?.book_id,
+        chapter_href: options?.chapter_href,
+        paragraph_index: options?.paragraph_index,
       }),
     });
 

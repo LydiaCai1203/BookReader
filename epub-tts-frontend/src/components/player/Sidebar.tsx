@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { NavItem } from "epubjs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { Book, Download, Loader2 } from "lucide-react";
+import { Book, Download, Loader2, FileArchive, FileAudio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -25,19 +25,24 @@ export function Sidebar({
   toc, currentChapterHref, onSelectChapter, coverUrl, title,
   bookId, selectedVoice = "zh-CN-XiaoxiaoNeural", speed = 1.0
 }: SidebarProps) {
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadingType, setDownloadingType] = useState<"mp3" | "zip" | null>(null);
 
   // 下载整本书音频（创建后台任务）
-  const handleDownloadBook = async () => {
+  const handleDownloadBook = async (format: "mp3" | "zip") => {
     if (!bookId) {
       toast.error("无法下载：书籍ID不存在");
       return;
     }
 
-    setIsDownloading(true);
+    setDownloadingType(format);
 
     try {
-      const response = await fetch(`${API_BASE}/books/${bookId}/download-audio`, {
+      // 根据格式选择不同的 API
+      const endpoint = format === "zip" 
+        ? `${API_BASE}/books/${bookId}/download-audio-zip`
+        : `${API_BASE}/books/${bookId}/download-audio`;
+      
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -53,6 +58,8 @@ export function Sidebar({
 
       const data = await response.json();
       
+      const formatDesc = format === "zip" ? "（每章独立文件）" : "（合并为一个文件）";
+      
       if (data.resumed) {
         toast.success(
           `恢复下载：${data.bookTitle}`, 
@@ -61,14 +68,14 @@ export function Sidebar({
       } else {
         toast.success(
           `已创建后台任务：${data.bookTitle}`, 
-          { description: "点击右上角「任务」按钮查看进度" }
+          { description: `${formatDesc} 点击右上角「任务」按钮查看进度` }
         );
       }
     } catch (error) {
       console.error("Download error:", error);
       toast.error("创建任务失败，请重试");
     } finally {
-      setIsDownloading(false);
+      setDownloadingType(null);
     }
   };
 
@@ -121,25 +128,42 @@ export function Sidebar({
         </div>
         
         {/* 下载整本书按钮 */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownloadBook}
-          disabled={isDownloading || !bookId}
-          className="w-full mt-3 border-primary/30 hover:border-primary hover:bg-primary/10 text-xs"
-        >
-          {isDownloading ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-              生成中...
-            </>
-          ) : (
-            <>
-              <Download className="w-3.5 h-3.5 mr-2" />
-              下载整本书音频
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2 mt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleDownloadBook("mp3")}
+            disabled={downloadingType !== null || !bookId}
+            className="flex-1 border-primary/30 hover:border-primary hover:bg-primary/10 text-xs"
+            title="合并为单个 MP3 文件"
+          >
+            {downloadingType === "mp3" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <>
+                <FileAudio className="w-3.5 h-3.5 mr-1" />
+                MP3
+              </>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleDownloadBook("zip")}
+            disabled={downloadingType !== null || !bookId}
+            className="flex-1 border-primary/30 hover:border-primary hover:bg-primary/10 text-xs"
+            title="每章一个文件，打包为 ZIP（复用已播放内容）"
+          >
+            {downloadingType === "zip" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <>
+                <FileArchive className="w-3.5 h-3.5 mr-1" />
+                ZIP
+              </>
+            )}
+          </Button>
+        </div>
       </div>
       
       <div className="flex-1 overflow-hidden">

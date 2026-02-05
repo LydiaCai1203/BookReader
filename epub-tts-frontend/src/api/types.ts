@@ -24,6 +24,10 @@ export interface TTSOptions {
   rate?: number;
   pitch?: number;
   volume?: number;
+  // 可选的书籍/章节/段落信息（用于结构化缓存）
+  book_id?: string;
+  chapter_href?: string;
+  paragraph_index?: number;
 }
 
 // 单词时间戳（用于字级高亮同步）

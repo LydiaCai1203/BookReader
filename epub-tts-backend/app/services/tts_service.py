@@ -60,13 +60,17 @@ class AudioCache:
         voice: str, 
         rate: float, 
         pitch: float,
-        word_timestamps: List[Dict] = None
+        word_timestamps: List[Dict] = None,
+        book_id: str = None,
+        chapter_href: str = None,
+        paragraph_index: int = None
     ) -> None:
         """保存音频和时间戳到缓存"""
         index = AudioCache._load_index()
-        index[cache_key] = {
+        entry = {
             'filename': filename,
             'text_preview': text[:100] + '...' if len(text) > 100 else text,
+            'text_length': len(text),
             'voice': voice,
             'rate': rate,
             'pitch': pitch,
@@ -74,7 +78,39 @@ class AudioCache:
             'created_at': datetime.now().isoformat(),
             'last_accessed': datetime.now().isoformat()
         }
+        # 添加书籍/章节/段落信息（如果有）
+        if book_id:
+            entry['book_id'] = book_id
+        if chapter_href:
+            entry['chapter_href'] = chapter_href
+        if paragraph_index is not None:
+            entry['paragraph_index'] = paragraph_index
+        
+        index[cache_key] = entry
         AudioCache._save_index(index)
+    
+    @staticmethod
+    def get_chapter_cached_entries(book_id: str, chapter_href: str) -> List[Dict]:
+        """获取指定章节的所有缓存段落（按 paragraph_index 排序）"""
+        index = AudioCache._load_index()
+        entries = []
+        for cache_key, entry in index.items():
+            if (entry.get('book_id') == book_id and 
+                entry.get('chapter_href') == chapter_href and
+                entry.get('paragraph_index') is not None):
+                # 检查文件是否存在
+                filepath = os.path.join(AUDIO_DIR, entry['filename'])
+                if os.path.exists(filepath):
+                    entries.append({
+                        'cache_key': cache_key,
+                        'paragraph_index': entry['paragraph_index'],
+                        'filename': entry['filename'],
+                        'filepath': filepath,
+                        **entry
+                    })
+        # 按段落索引排序
+        entries.sort(key=lambda x: x['paragraph_index'])
+        return entries
     
     @staticmethod
     def get_cache_stats() -> Dict:
@@ -151,7 +187,15 @@ class TTSService:
         ]
 
     @staticmethod
-    async def generate_audio(text: str, voice: str, rate: float = 1.0, pitch: float = 1.0) -> Dict[str, Any]:
+    async def generate_audio(
+        text: str, 
+        voice: str, 
+        rate: float = 1.0, 
+        pitch: float = 1.0,
+        book_id: str = None,
+        chapter_href: str = None,
+        paragraph_index: int = None
+    ) -> Dict[str, Any]:
         """
         生成音频，优先从缓存获取
         返回: {
@@ -160,6 +204,9 @@ class TTSService:
             "wordTimestamps": [{"text": str, "offset": int, "duration": int}, ...]
         }
         offset 和 duration 单位为毫秒
+        
+        可选参数 book_id, chapter_href, paragraph_index 用于结构化缓存，
+        以便后续按章节获取和拼接音频。
         """
         # 确保音频目录存在
         os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -239,7 +286,8 @@ class TTSService:
                 communicate_retry = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
                 await communicate_retry.save(filepath)
                 AudioCache.save_to_cache(
-                    cache_key, filename, text, voice, rate, pitch, []
+                    cache_key, filename, text, voice, rate, pitch, [],
+                    book_id=book_id, chapter_href=chapter_href, paragraph_index=paragraph_index
                 )
                 return {
                     "audioUrl": f"/audio/{filename}", 
@@ -259,9 +307,10 @@ class TTSService:
             # 如果没有收集到音频块，使用 save 方法
             await communicate.save(filepath)
         
-        # 保存到缓存索引（包含时间戳）
+        # 保存到缓存索引（包含时间戳和书籍信息）
         AudioCache.save_to_cache(
-            cache_key, filename, text, voice, rate, pitch, word_timestamps
+            cache_key, filename, text, voice, rate, pitch, word_timestamps,
+            book_id=book_id, chapter_href=chapter_href, paragraph_index=paragraph_index
         )
         
         return {
@@ -371,4 +420,139 @@ class TTSService:
             "filename": output_filename,
             "size": file_size,
             "sizeFormatted": f"{file_size / (1024*1024):.2f} MB"
+        }
+    
+    @staticmethod
+    def concatenate_audio_files(audio_files: List[str], output_path: str) -> bool:
+        """
+        拼接多个 MP3 文件为一个
+        edge-tts 生成的 MP3 格式一致，可以直接二进制拼接
+        """
+        try:
+            with open(output_path, 'wb') as outfile:
+                for audio_file in audio_files:
+                    if os.path.exists(audio_file):
+                        with open(audio_file, 'rb') as infile:
+                            outfile.write(infile.read())
+            return True
+        except Exception as e:
+            print(f"[TTS] Concatenate error: {e}")
+            return False
+    
+    @staticmethod
+    async def generate_chapter_audio_smart(
+        book_id: str,
+        chapter_href: str,
+        sentences: List[str],
+        voice: str,
+        rate: float = 1.0,
+        pitch: float = 1.0,
+        filename: str = "chapter",
+        progress_callback: callable = None
+    ) -> Dict[str, Any]:
+        """
+        智能生成章节音频：
+        1. 检查已缓存的段落
+        2. 只生成缺失的段落
+        3. 拼接所有段落为完整章节
+        """
+        import time as time_module
+        
+        if not sentences:
+            raise ValueError("No sentences provided")
+        
+        # 过滤空句子
+        sentences = [s.strip() for s in sentences if s and s.strip()]
+        if not sentences:
+            raise ValueError("All sentences are empty")
+        
+        total_paragraphs = len(sentences)
+        
+        if progress_callback:
+            progress_callback(5, f"检查缓存... 共 {total_paragraphs} 段")
+        
+        # 获取已缓存的段落
+        cached_entries = AudioCache.get_chapter_cached_entries(book_id, chapter_href)
+        cached_map = {entry['paragraph_index']: entry for entry in cached_entries}
+        
+        cached_count = len(cached_map)
+        missing_count = total_paragraphs - cached_count
+        
+        if progress_callback:
+            progress_callback(10, f"已缓存 {cached_count}/{total_paragraphs} 段，需生成 {missing_count} 段")
+        
+        # Rate & Pitch 格式化
+        rate_pct = int((rate - 1.0) * 100)
+        rate_str = f"{rate_pct:+d}%"
+        pitch_hz = int((pitch - 1.0) * 50)
+        pitch_str = f"{pitch_hz:+d}Hz"
+        
+        # 准备所有段落的音频文件路径（按顺序）
+        audio_files = []
+        generated_count = 0
+        
+        for idx, text in enumerate(sentences):
+            if idx in cached_map:
+                # 使用缓存的音频
+                audio_files.append(cached_map[idx]['filepath'])
+            else:
+                # 生成新音频
+                cache_key = AudioCache.get_cache_key(text, voice, rate, pitch)
+                filename_mp3 = f"{cache_key}.mp3"
+                filepath = os.path.join(AUDIO_DIR, filename_mp3)
+                
+                try:
+                    communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
+                    await communicate.save(filepath)
+                    
+                    # 保存到缓存索引
+                    AudioCache.save_to_cache(
+                        cache_key, filename_mp3, text, voice, rate, pitch, [],
+                        book_id=book_id, chapter_href=chapter_href, paragraph_index=idx
+                    )
+                    
+                    audio_files.append(filepath)
+                    generated_count += 1
+                    
+                    if progress_callback:
+                        progress = 10 + int((generated_count / max(missing_count, 1)) * 70)
+                        progress_callback(progress, f"生成中 {generated_count}/{missing_count} 段")
+                        
+                except Exception as e:
+                    print(f"[TTS] Error generating paragraph {idx}: {e}")
+                    # 跳过失败的段落，继续处理
+                    continue
+        
+        if not audio_files:
+            raise ValueError("No audio generated")
+        
+        if progress_callback:
+            progress_callback(85, "拼接音频...")
+        
+        # 生成输出文件
+        timestamp = int(time_module.time())
+        safe_filename = "".join(c for c in filename if c.isalnum() or c in "._- ").strip()
+        if not safe_filename:
+            safe_filename = "chapter"
+        output_filename = f"{safe_filename}_{timestamp}.mp3"
+        output_path = os.path.join(AUDIO_DIR, output_filename)
+        
+        # 拼接音频
+        success = TTSService.concatenate_audio_files(audio_files, output_path)
+        if not success:
+            raise ValueError("Failed to concatenate audio files")
+        
+        file_size = os.path.getsize(output_path)
+        
+        if progress_callback:
+            progress_callback(100, "完成")
+        
+        return {
+            "downloadUrl": f"/api/tts/download/{output_filename}",
+            "filename": output_filename,
+            "size": file_size,
+            "sizeFormatted": f"{file_size / (1024*1024):.2f} MB",
+            "totalParagraphs": total_paragraphs,
+            "cachedParagraphs": cached_count,
+            "generatedParagraphs": generated_count
         }

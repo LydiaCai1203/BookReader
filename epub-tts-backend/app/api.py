@@ -8,20 +8,35 @@ from app.services.task_service import task_manager, TaskStatus
 import asyncio
 import os
 import edge_tts
+import zipfile
+import shutil
 
 router = APIRouter()
 
 # --- Data Models ---
 class TTSRequest(BaseModel):
     text: str
-    voice: Optional[str] = "en-US-ChristopherNeural" # Default voice
+    voice: Optional[str] = "en-US-ChristopherNeural"  # Default voice
     rate: Optional[float] = 1.0
     pitch: Optional[float] = 1.0
     volume: Optional[float] = 1.0
+    # 可选的书籍/章节/段落信息（用于结构化缓存）
+    book_id: Optional[str] = None
+    chapter_href: Optional[str] = None
+    paragraph_index: Optional[int] = None
 
 class DownloadRequest(BaseModel):
-    """下载音频请求"""
+    """下载音频请求（旧版，直接传句子列表）"""
     sentences: List[str]  # 要合成的句子列表
+    voice: Optional[str] = "zh-CN-XiaoxiaoNeural"
+    rate: Optional[float] = 1.0
+    pitch: Optional[float] = 1.0
+    filename: Optional[str] = "chapter"  # 下载文件名（不含扩展名）
+
+class ChapterDownloadRequest(BaseModel):
+    """智能下载章节音频请求（复用已缓存的段落）"""
+    book_id: str
+    chapter_href: str
     voice: Optional[str] = "zh-CN-XiaoxiaoNeural"
     rate: Optional[float] = 1.0
     pitch: Optional[float] = 1.0
@@ -29,6 +44,12 @@ class DownloadRequest(BaseModel):
 
 class BookDownloadRequest(BaseModel):
     """下载整本书音频请求"""
+    voice: Optional[str] = "zh-CN-XiaoxiaoNeural"
+    rate: Optional[float] = 1.0
+    pitch: Optional[float] = 1.0
+
+class BookDownloadZipRequest(BaseModel):
+    """下载整本书音频（ZIP 格式，每章一个文件）"""
     voice: Optional[str] = "zh-CN-XiaoxiaoNeural"
     rate: Optional[float] = 1.0
     pitch: Optional[float] = 1.0
@@ -115,6 +136,7 @@ async def speak(request: TTSRequest):
     文字转语音接口
     - 如果缓存中存在相同参数的音频，直接返回缓存
     - 否则生成新音频并缓存
+    - 可选传入 book_id, chapter_href, paragraph_index 用于结构化缓存
     返回: {"audioUrl": str, "cached": bool, "wordTimestamps": [...]}
     """
     print(f"[API] TTS request: text='{request.text[:100] if request.text else 'EMPTY'}...', voice={request.voice}")
@@ -127,7 +149,10 @@ async def speak(request: TTSRequest):
             text=request.text, 
             voice=request.voice, 
             rate=request.rate, 
-            pitch=request.pitch
+            pitch=request.pitch,
+            book_id=request.book_id,
+            chapter_href=request.chapter_href,
+            paragraph_index=request.paragraph_index
         )
         return result
     except Exception as e:
@@ -203,6 +228,20 @@ async def get_cache_stats():
     """获取音频缓存统计信息"""
     return AudioCache.get_cache_stats()
 
+@router.get("/tts/cache/chapter")
+async def get_chapter_cache(book_id: str, chapter_href: str):
+    """
+    获取指定章节的缓存状态
+    返回: {"entries": [...], "total_paragraphs": int, "cached_count": int}
+    """
+    entries = AudioCache.get_chapter_cached_entries(book_id, chapter_href)
+    return {
+        "book_id": book_id,
+        "chapter_href": chapter_href,
+        "entries": entries,
+        "cached_count": len(entries)
+    }
+
 @router.delete("/tts/cache")
 async def clear_cache():
     """清空音频缓存"""
@@ -245,19 +284,63 @@ async def download_chapter_audio(request: DownloadRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/tts/download/chapter")
+async def download_chapter_audio_smart(request: ChapterDownloadRequest):
+    """
+    智能下载章节音频：
+    1. 获取章节内容
+    2. 检查已缓存的段落（用户播放时已生成）
+    3. 只生成缺失的段落
+    4. 拼接所有段落为完整章节音频
+    """
+    # 获取章节内容
+    try:
+        chapter = BookService.get_chapter_content(request.book_id, request.chapter_href)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Chapter not found: {e}")
+    
+    sentences = chapter.get("sentences", [])
+    if not sentences:
+        raise HTTPException(status_code=400, detail="Chapter has no content")
+    
+    print(f"[API] Smart download: book={request.book_id}, chapter={request.chapter_href}, {len(sentences)} paragraphs")
+    
+    try:
+        result = await TTSService.generate_chapter_audio_smart(
+            book_id=request.book_id,
+            chapter_href=request.chapter_href,
+            sentences=sentences,
+            voice=request.voice,
+            rate=request.rate,
+            pitch=request.pitch,
+            filename=request.filename
+        )
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/tts/download/{filename}")
 async def get_download_file(filename: str):
     """
-    获取已生成的音频文件用于下载
+    获取已生成的音频/压缩文件用于下载
+    支持 .mp3 和 .zip 格式
     """
     filepath = os.path.join("data/audio", filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found")
     
+    # 根据文件类型设置 media_type
+    if filename.endswith(".zip"):
+        media_type = "application/zip"
+    else:
+        media_type = "audio/mpeg"
+    
     # 返回文件供下载
     return FileResponse(
         filepath,
-        media_type="audio/mpeg",
+        media_type=media_type,
         filename=filename
     )
 
@@ -491,6 +574,185 @@ async def download_book_audio(book_id: str, request: BookDownloadRequest):
             "bookTitle": book_title,
             "resumed": False
         }
+
+@router.post("/books/{book_id}/download-audio-zip")
+async def download_book_audio_zip(book_id: str, request: BookDownloadZipRequest):
+    """
+    创建后台任务生成整本书的音频（ZIP 格式，每章一个文件）
+    - 智能复用已缓存的段落（用户播放过的内容）
+    - 每章生成单独的 MP3 文件
+    - 打包成 ZIP 返回
+    """
+    import time as time_module
+    
+    # 检查书籍是否存在
+    book_path = BookService.get_book_path(book_id)
+    if not os.path.exists(book_path):
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    # 获取书籍信息
+    book_info = BookLibrary.get_book(book_id)
+    book_title = book_info.get("title", "book") if book_info else "book"
+    
+    # 创建任务
+    timestamp = int(time_module.time())
+    safe_filename = "".join(c for c in book_title if c.isalnum() or c in "._- ").strip()
+    if not safe_filename:
+        safe_filename = "book"
+    
+    # 临时目录用于存放章节音频
+    temp_dir = os.path.join(AUDIO_DIR, f"temp_{book_id}_{timestamp}")
+    output_filename = f"{safe_filename}_{timestamp}.zip"
+    output_filepath = os.path.join(AUDIO_DIR, output_filename)
+    
+    task_id = task_manager.create_task(
+        task_type="book_audio_zip",
+        params={
+            "book_id": book_id,
+            "voice": request.voice,
+            "rate": request.rate,
+            "pitch": request.pitch,
+            "output_filepath": output_filepath,
+            "temp_dir": temp_dir
+        },
+        title=f"生成《{book_title}》音频（ZIP）"
+    )
+    
+    async def generate_book_audio_zip_task():
+        try:
+            task_manager.start_task(task_id)
+            task_manager.update_progress(task_id, 2, "正在读取书籍目录...")
+            
+            # 获取目录
+            toc = BookService.get_toc(book_id)
+            if not toc:
+                raise Exception("Book has no chapters")
+            
+            # 扁平化收集所有章节信息
+            chapters_to_process = []
+            
+            def collect_chapters(items, prefix=""):
+                for i, item in enumerate(items):
+                    chapters_to_process.append({
+                        "href": item.get("href", ""),
+                        "label": item.get("label", ""),
+                        "index": len(chapters_to_process)
+                    })
+                    if item.get("subitems"):
+                        collect_chapters(item["subitems"], f"{prefix}{i+1}.")
+            
+            collect_chapters(toc)
+            total_chapters = len(chapters_to_process)
+            
+            if total_chapters == 0:
+                raise Exception("No chapters found")
+            
+            task_manager.update_progress(task_id, 5, f"共 {total_chapters} 章节，开始生成...")
+            
+            # 创建临时目录
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            # 生成每个章节的音频
+            chapter_files = []
+            total_cached = 0
+            total_generated = 0
+            processed = 0
+            
+            for chapter_info in chapters_to_process:
+                try:
+                    # 获取章节内容
+                    chapter = BookService.get_chapter_content(book_id, chapter_info["href"])
+                    sentences = chapter.get("sentences", [])
+                    
+                    if not sentences:
+                        processed += 1
+                        continue
+                    
+                    # 生成章节文件名
+                    idx = chapter_info["index"]
+                    chapter_label = chapter_info["label"]
+                    safe_label = "".join(c for c in chapter_label if c.isalnum() or c in "._- ").strip()
+                    if not safe_label:
+                        safe_label = f"chapter"
+                    chapter_filename = f"{idx+1:03d}_{safe_label}.mp3"
+                    chapter_filepath = os.path.join(temp_dir, chapter_filename)
+                    
+                    # 使用智能生成方法（复用缓存）
+                    result = await TTSService.generate_chapter_audio_smart(
+                        book_id=book_id,
+                        chapter_href=chapter_info["href"],
+                        sentences=sentences,
+                        voice=request.voice,
+                        rate=request.rate,
+                        pitch=request.pitch,
+                        filename=f"temp_{idx}"
+                    )
+                    
+                    # 移动生成的文件到章节目录
+                    generated_file = os.path.join(AUDIO_DIR, result["filename"])
+                    if os.path.exists(generated_file):
+                        shutil.move(generated_file, chapter_filepath)
+                        chapter_files.append(chapter_filepath)
+                        total_cached += result.get("cachedParagraphs", 0)
+                        total_generated += result.get("generatedParagraphs", 0)
+                    
+                except Exception as e:
+                    print(f"[Task] Skip chapter {chapter_info['href']}: {e}")
+                
+                processed += 1
+                progress = 5 + int((processed / total_chapters) * 80)
+                task_manager.update_progress(
+                    task_id, progress,
+                    f"已完成 {processed}/{total_chapters} 章节"
+                )
+            
+            if not chapter_files:
+                raise Exception("No audio generated")
+            
+            task_manager.update_progress(task_id, 90, "正在打包 ZIP...")
+            
+            # 打包成 ZIP
+            with zipfile.ZipFile(output_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for chapter_file in chapter_files:
+                    arcname = os.path.basename(chapter_file)
+                    zipf.write(chapter_file, arcname)
+            
+            # 清理临时目录
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            file_size = os.path.getsize(output_filepath)
+            
+            task_manager.complete_task(task_id, {
+                "downloadUrl": f"/api/tts/download/{output_filename}",
+                "filename": output_filename,
+                "size": file_size,
+                "sizeFormatted": f"{file_size / (1024*1024):.2f} MB",
+                "bookTitle": book_title,
+                "totalChapters": len(chapter_files),
+                "cachedParagraphs": total_cached,
+                "generatedParagraphs": total_generated
+            })
+            
+        except asyncio.CancelledError:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            task_manager.fail_task(task_id, "任务已取消")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            task_manager.fail_task(task_id, str(e))
+        finally:
+            task_manager.unregister_running_task(task_id)
+    
+    # 启动后台任务
+    task = asyncio.create_task(generate_book_audio_zip_task())
+    task_manager.register_running_task(task_id, task)
+    
+    return {
+        "taskId": task_id,
+        "message": f"任务已创建，正在后台生成《{book_title}》的音频（ZIP格式）",
+        "bookTitle": book_title
+    }
 
 # --- 任务管理 Routes ---
 @router.get("/tasks")

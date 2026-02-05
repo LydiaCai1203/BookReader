@@ -335,69 +335,24 @@ class BookService:
                     parts.append(child_text)
             text = '\n'.join(parts)
         
-        # 智能分段/分句处理
+        # 保持原始段落结构，不做额外分句
         import re
         
         # 清理多余的空行
         text = re.sub(r'\n{3,}', '\n\n', text)
         
-        # 按行分割
-        all_lines = [line.strip() for line in text.split('\n') if line.strip()]
+        # 按段落分割（双换行分隔）
+        paragraphs = re.split(r'\n\s*\n', text)
         
-        if not all_lines:
-            return {
-                "href": href,
-                "text": text,
-                "sentences": [text.strip()] if text.strip() else []
-            }
+        # 每个段落作为一个独立单元
+        sentences = []
+        for para in paragraphs:
+            # 合并段落内的换行（保持为一个整体）
+            para = ' '.join(line.strip() for line in para.split('\n') if line.strip())
+            if para:
+                sentences.append(para)
         
-        # 判断整个页面是否是"目录型"内容
-        # 特征：大多数行较短、很少以句号结尾
-        short_lines = sum(1 for line in all_lines if len(line) < 60)
-        sentence_endings = sum(1 for line in all_lines if line.endswith(('。', '！', '？', '.', '!', '?')))
-        
-        is_toc_like = (
-            len(all_lines) >= 3 and
-            short_lines / len(all_lines) > 0.7 and  # 70%以上是短行
-            sentence_endings / len(all_lines) < 0.3  # 少于30%以句号结尾
-        )
-        
-        if is_toc_like:
-            # 目录型：每行独立显示
-            sentences = all_lines
-        else:
-            # 普通内容：按段落处理
-            paragraphs = re.split(r'\n\s*\n', text)
-            sentences = []
-            
-            for para in paragraphs:
-                para = para.strip()
-                if not para:
-                    continue
-                
-                lines = [line.strip() for line in para.split('\n') if line.strip()]
-                
-                if len(lines) == 1:
-                    # 单行段落：可能是标题，保持独立
-                    if len(lines[0]) < 60:
-                        sentences.append(lines[0])
-                    else:
-                        # 长行：按句子分割
-                        split_sentences = re.split(r'(?<=[.!?。！？；])\s*', lines[0])
-                        for s in split_sentences:
-                            s = s.strip()
-                            if s and len(s) > 1:
-                                sentences.append(s)
-                else:
-                    # 多行段落：合并后按句子分割
-                    combined = ' '.join(lines)
-                    split_sentences = re.split(r'(?<=[.!?。！？；])\s*', combined)
-                    for s in split_sentences:
-                        s = s.strip()
-                        if s and len(s) > 1:
-                            sentences.append(s)
-        
-        # 如果分句后为空，至少返回整个文本作为一句
+        # 如果没有段落，返回整个文本
         if not sentences and text.strip():
             sentences = [text.strip()]
         
