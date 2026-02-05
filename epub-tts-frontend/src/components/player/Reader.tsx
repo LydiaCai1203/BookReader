@@ -67,6 +67,21 @@ export function Reader({ sentences, current, wordTimestamps = [], currentTime = 
     }
   }, [currentWordIndex, isPlaying]);
 
+  // 处理 HTML 内容中的图片 URL（添加 API_BASE 前缀）
+  // 注意：必须在所有条件 return 之前调用 hooks
+  const processedHtml = useMemo(() => {
+    if (!htmlContent) return "";
+    // 替换相对路径的图片 URL 为绝对路径
+    return htmlContent.replace(/src="\/images\//g, `src="${API_BASE}/images/`);
+  }, [htmlContent]);
+
+  // 播放时自动切换到播放视图
+  useEffect(() => {
+    if (isPlaying) {
+      setViewMode("play");
+    }
+  }, [isPlaying]);
+
   if (sentences.length === 0) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground font-mono uppercase tracking-widest text-sm animate-pulse">
@@ -137,20 +152,6 @@ export function Reader({ sentences, current, wordTimestamps = [], currentTime = 
 
     return result.length > 0 ? result : <span>{text}</span>;
   };
-
-  // 处理 HTML 内容中的图片 URL（添加 API_BASE 前缀）
-  const processedHtml = useMemo(() => {
-    if (!htmlContent) return "";
-    // 替换相对路径的图片 URL 为绝对路径
-    return htmlContent.replace(/src="\/images\//g, `src="${API_BASE}/images/`);
-  }, [htmlContent]);
-
-  // 播放时自动切换到播放视图
-  useEffect(() => {
-    if (isPlaying) {
-      setViewMode("play");
-    }
-  }, [isPlaying]);
 
   return (
     <div className="h-full w-full flex flex-col bg-background">
