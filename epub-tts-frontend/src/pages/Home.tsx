@@ -48,9 +48,11 @@ export default function Home() {
       setBooks(data.map((book: any) => ({
         id: book.id,
         title: book.title || "Unknown",
-        author: book.author,
-        coverUrl: book.coverUrl ? `${API_BASE}${book.coverUrl}` : undefined,
-        lastOpened: book.lastOpened,
+        author: book.creator || book.author,  // 后端字段是 creator
+        coverUrl: book.coverUrl 
+          ? (book.coverUrl.startsWith('http') ? book.coverUrl : `${API_BASE}${book.coverUrl}`)
+          : undefined,
+        lastOpened: book.lastOpenedAt,
       })));
     } catch (error) {
       console.error("Failed to load books:", error);
@@ -125,10 +127,7 @@ export default function Home() {
         {/* Upload Section */}
         <section className="mb-12">
           <h2 className="text-lg font-semibold mb-4 text-foreground">上传新书</h2>
-          <UploadZone 
-            onFileSelect={handleFileSelect} 
-            onDemoSelect={() => {}}
-          />
+          <UploadZone onFileSelect={handleFileSelect} />
         </section>
 
         {/* Bookshelf Section */}
