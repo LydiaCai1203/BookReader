@@ -160,8 +160,8 @@ export function TasksPanel() {
         </Button>
       </SheetTrigger>
       
-      <SheetContent className="w-[400px] sm:w-[450px] p-0 !h-auto top-auto bottom-0">
-        <SheetHeader className="p-4 border-b border-border">
+      <SheetContent className="w-[400px] sm:w-[450px] p-0 flex flex-col">
+        <SheetHeader className="p-4 border-b border-border shrink-0">
           <SheetTitle className="flex items-center gap-2">
             <ListTodo className="w-5 h-5" />
             后台任务
@@ -173,13 +173,14 @@ export function TasksPanel() {
           </SheetTitle>
         </SheetHeader>
         
-        {tasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-            <ListTodo className="w-12 h-12 mb-2 opacity-30" />
-            <p className="text-sm">暂无任务</p>
-          </div>
-        ) : (
-          <div className="p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto">
+          {tasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+              <ListTodo className="w-12 h-12 mb-2 opacity-30" />
+              <p className="text-sm">暂无任务</p>
+            </div>
+          ) : (
+            <div className="p-4 space-y-3">
             {tasks.map((task) => (
               <div
                 key={task.id}
@@ -276,8 +277,9 @@ export function TasksPanel() {
                 </div>
               </div>
             ))}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </SheetContent>
     </Sheet>
   );
