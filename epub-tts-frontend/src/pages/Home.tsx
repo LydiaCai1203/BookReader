@@ -1,488 +1,222 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { UploadZone } from "@/components/player/UploadZone";
-import { Sidebar } from "@/components/player/Sidebar";
-import { Reader } from "@/components/player/Reader";
-import { Controls } from "@/components/player/Controls";
-import { TranslationSettings } from "@/components/player/TranslationSettings";
-import { useUploadBook, useChapter } from "@/hooks/use-book";
-import { ttsService } from "@/api";
-import type { NavItem, WordTimestamp } from "@/api/types";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { useUploadBook } from "@/hooks/use-book";
 import { Button } from "@/components/ui/button";
-import { Loader2, Menu, X, BrainCircuit, Languages, Github } from "lucide-react";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Loader2, Book, Trash2, BrainCircuit, Github } from "lucide-react";
 import { toast } from "sonner";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { translator, type TranslatorConfig, DEFAULT_CONFIG } from "@/lib/translator";
-import { TTSService } from "@/api/services";
-import { TasksPanel } from "@/components/player/TasksPanel";
 import { API_BASE, API_URL } from "@/config";
+import { TasksPanel } from "@/components/player/TasksPanel";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+interface BookInfo {
+  id: string;
+  title: string;
+  author?: string;
+  coverUrl?: string;
+  lastOpened?: string;
+}
 
 export default function Home() {
-  // Book State
-  const [bookId, setBookId] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<any>({});
-  const [toc, setToc] = useState<NavItem[]>([]);
-  const [cover, setCover] = useState<string>("");
+  const [, navigate] = useLocation();
+  const [books, setBooks] = useState<BookInfo[]>([]);
+  const [isLoadingBooks, setIsLoadingBooks] = useState(true);
+  const [deleteBookId, setDeleteBookId] = useState<string | null>(null);
   
-  // Reader State
-  const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null);
-  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
-  const [displayedSentences, setDisplayedSentences] = useState<string[]>([]);
-  
-  // Player State
-  const [isPlaying, setIsPlaying] = useState(false);
-  const isPlayingRef = useRef(false);
-  const playingSentenceRef = useRef<number>(-1); // 当前正在播放的句子索引
-  const [voice, setVoice] = useState<string | null>(null);
-  const [speed, setSpeed] = useState(1.0);
-  const [emotion, setEmotion] = useState<"neutral" | "warm" | "excited" | "serious" | "suspense">("neutral");
-  
-  // 字词同步高亮状态
-  const [wordTimestamps, setWordTimestamps] = useState<WordTimestamp[]>([]);
-  const [currentTime, setCurrentTime] = useState(0);
-
-  // Translation State
-  const [transConfig, setTransConfig] = useState<TranslatorConfig>(() => {
-    const saved = localStorage.getItem("epub-tts-trans-config");
-    return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
-  });
-  const [translatedCache, setTranslatedCache] = useState<Record<string, string[]>>({});
-  const [isTranslating, setIsTranslating] = useState(false);
-
-  // 移动端侧边栏状态（必须在所有条件返回之前声明）
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const isMobile = useIsMobile();
-
-  // Queries
   const uploadMutation = useUploadBook();
-  const { data: chapterData, isLoading: isChapterLoading } = useChapter(bookId, currentChapterHref);
 
-  // Sync translator config
+  // 加载书架
   useEffect(() => {
-    translator.updateConfig(transConfig);
-  }, [transConfig]);
+    loadBooks();
+  }, []);
 
-  // Handle Translation or Raw Content Update
-  useEffect(() => {
-    if (!chapterData) return;
-    
-    const href = chapterData.href;
-    const rawSentences = chapterData.sentences;
-
-    const processContent = async () => {
-        // If translation is enabled
-        if (transConfig.enabled && transConfig.apiKey) {
-            // Check cache
-            if (translatedCache[href]) {
-                setDisplayedSentences(translatedCache[href]);
-                return;
-            }
-
-            // Translate
-            setIsTranslating(true);
-            try {
-                // Join for context, limit length if needed
-                const fullText = rawSentences.join(" ");
-                // Ideally backend/service handles this, but here we do client-side AI call
-                const translatedText = await translator.translate(fullText);
-                
-                // Simple split for now (should match sentence count ideally, but hard)
-                // Re-using a simple splitter
-                const newSentences = translatedText.match(/([^.!?。！？\n\r]+[.!?。！？\n\r]+)|([^.!?。！？\n\r]+$)/g)
-                    ?.map(s => s.trim())
-                    .filter(s => s.length > 0) || [translatedText];
-
-                setTranslatedCache(prev => ({ ...prev, [href]: newSentences }));
-                setDisplayedSentences(newSentences);
-                toast.success("Chapter Translated");
-            } catch (error) {
-                console.error("Translation failed", error);
-                toast.error("Translation Failed, showing original");
-                setDisplayedSentences(rawSentences);
-            } finally {
-                setIsTranslating(false);
-            }
-        } else {
-            // Raw
-            setDisplayedSentences(rawSentences);
-        }
-    };
-
-    processContent();
-  }, [chapterData, transConfig.enabled, transConfig.apiKey, translatedCache]);
-
-
-  const handleConfigChange = (newConfig: TranslatorConfig) => {
-    setTransConfig(newConfig);
-    localStorage.setItem("epub-tts-trans-config", JSON.stringify(newConfig));
-    toast.success("Settings Saved");
+  const loadBooks = async () => {
+    setIsLoadingBooks(true);
+    try {
+      const res = await fetch(`${API_URL}/books`);
+      if (!res.ok) throw new Error("Failed to load books");
+      const data = await res.json();
+      setBooks(data.map((book: any) => ({
+        id: book.id,
+        title: book.title || "Unknown",
+        author: book.author,
+        coverUrl: book.coverUrl ? `${API_BASE}${book.coverUrl}` : undefined,
+        lastOpened: book.lastOpened,
+      })));
+    } catch (error) {
+      console.error("Failed to load books:", error);
+    } finally {
+      setIsLoadingBooks(false);
+    }
   };
 
   const handleFileSelect = (file: File) => {
     toast.promise(uploadMutation.mutateAsync(file), {
       loading: '正在上传并解析书籍...',
       success: (data) => {
-         setBookId(data.bookId);
-         setMetadata(data.metadata);
-         setToc(data.toc);
-         if (data.coverUrl) setCover(data.coverUrl);
-         
-         if (data.toc.length > 0) {
-            setCurrentChapterHref(data.toc[0].href);
-         }
-         return "书籍已就绪";
+        // 上传成功后直接跳转到阅读页
+        navigate(`/book/${data.bookId}`);
+        return "书籍已就绪";
       },
       error: "加载失败"
     });
   };
 
-  // 从书架选择已有书籍
-  const handleBookSelect = async (bookId: string) => {
-    toast.promise(
-      fetch(`${API_URL}/books/${bookId}`).then(res => {
-        if (!res.ok) throw new Error("Failed to load book");
-        return res.json();
-      }),
-      {
-        loading: '正在加载书籍...',
-        success: (data) => {
-          setBookId(data.bookId);
-          setMetadata(data.metadata);
-          setToc(data.toc);
-          if (data.coverUrl) setCover(`${API_BASE}${data.coverUrl}`);
-          
-          if (data.toc.length > 0) {
-            setCurrentChapterHref(data.toc[0].href);
-          }
-          return `已打开《${data.metadata?.title || '书籍'}》`;
-        },
-        error: "加载失败，书籍可能已被删除"
-      }
-    );
+  const handleBookClick = (bookId: string) => {
+    navigate(`/book/${bookId}`);
   };
 
-  const handleDemoSelect = async () => {
-    // Mock Demo Data
-    const mockId = "demo-book";
-    setBookId(mockId);
-    setMetadata({ title: "The Neural Horizon (Demo)", creator: "AnyGen AI" });
-    setToc([
-        { id: "1", href: "chapter1", label: "Chapter 1: Awakening" },
-        { id: "2", href: "chapter2", label: "Chapter 2: The Signal" }
-    ]);
-    setCurrentChapterHref("chapter1");
-    // Note: The useChapter hook needs to handle this mock ID in the service layer
-    // We assume MockBookService handles 'demo-book' id or we manually feed data?
-    // Actually, MockBookService.getChapter needs to know about "demo-book"
-    // See next step to ensure MockBookService has demo data.
-  };
-
-  // 时间更新回调
-  const handleTimeUpdate = useCallback((time: number) => {
-    setCurrentTime(time);
-  }, []);
-
-  // 时间戳就绪回调
-  const handleTimestampsReady = useCallback((timestamps: WordTimestamp[]) => {
-    setWordTimestamps(timestamps);
-  }, []);
-
-  // 注册/注销回调
-  useEffect(() => {
-    const service = ttsService as TTSService;
-    if (service.onTimeUpdate) {
-      service.onTimeUpdate(handleTimeUpdate);
-    }
-    if (service.onTimestampsReady) {
-      service.onTimestampsReady(handleTimestampsReady);
-    }
-    return () => {
-      if (service.onTimeUpdate) {
-        service.onTimeUpdate(null);
-      }
-      if (service.onTimestampsReady) {
-        service.onTimestampsReady(null);
-      }
-    };
-  }, [handleTimeUpdate, handleTimestampsReady]);
-
-  // 保持 ref 与 state 同步
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
-
-  // TTS Loop - 使用更简单的模式避免重复播放
-  useEffect(() => {
-    // 如果不在播放状态，停止并返回
-    if (!isPlaying) {
-       ttsService.stop();
-       playingSentenceRef.current = -1;
-       return;
-    }
-
-    // 如果已经播放完所有句子
-    if (currentSentenceIndex >= displayedSentences.length) {
-       setIsPlaying(false);
-       playingSentenceRef.current = -1;
-       return;
-    }
-
-    const text = displayedSentences[currentSentenceIndex];
-    if (!text) return;
-
-    // 使用一个局部变量标记这次 effect 调用的句子索引
-    const thisSentenceIndex = currentSentenceIndex;
+  const handleDeleteBook = async () => {
+    if (!deleteBookId) return;
     
-    // 如果已经在播放这个句子，不要重复开始
-    if (playingSentenceRef.current === thisSentenceIndex) {
-       return;
-    }
-
-    const getEmotionParams = (e: string) => {
-       switch(e) {
-          case "warm": return { rate: 0.9 * speed, pitch: 1.05 };
-          case "excited": return { rate: 1.2 * speed, pitch: 1.2 };
-          case "serious": return { rate: 0.85 * speed, pitch: 0.8 };
-          default: return { rate: 1.0 * speed, pitch: 1.0 };
-       }
-    };
-    
-    const params = getEmotionParams(emotion);
-
-    // 先停止之前的音频
-    ttsService.stop();
-    
-    // 立即标记当前正在播放的句子（在任何异步操作之前）
-    playingSentenceRef.current = thisSentenceIndex;
-    
-    // 开始播放（传入书籍/章节/段落信息用于结构化缓存）
-    ttsService.speak(text, {
-      voice: voice || undefined,
-      rate: params.rate,
-      pitch: params.pitch,
-      book_id: bookId || undefined,
-      chapter_href: currentChapterHref || undefined,
-      paragraph_index: thisSentenceIndex,
-    }).then(() => {
-      // 只有当还在播放这个句子时才继续
-      if (playingSentenceRef.current !== thisSentenceIndex) {
-        return;
-      }
+    try {
+      const res = await fetch(`${API_URL}/books/${deleteBookId}`, {
+        method: "DELETE"
+      });
+      if (!res.ok) throw new Error("Failed to delete book");
       
-      // 检查是否还在播放状态
-      if (!isPlayingRef.current) {
-        playingSentenceRef.current = -1;
-        return;
-      }
-      
-      // 清理并进入下一句
-      setWordTimestamps([]);
-      setCurrentTime(0);
-      playingSentenceRef.current = -1;
-      setCurrentSentenceIndex(prev => prev + 1);
-    }).catch(e => {
-      if (playingSentenceRef.current !== thisSentenceIndex) {
-        return;
-      }
-      console.error("TTS Error:", e);
-      playingSentenceRef.current = -1;
-      setIsPlaying(false);
-    });
-
-  }, [isPlaying, currentSentenceIndex, displayedSentences, voice, speed, emotion]);
-
-
-  // Handlers
-  const handleNext = () => {
-    if (currentSentenceIndex < displayedSentences.length - 1) {
-       ttsService.stop();
-       setCurrentSentenceIndex(p => p + 1);
-    } else {
-       // Next Chapter Logic
-       const findNext = (items: NavItem[]): string | null => {
-          const idx = items.findIndex(i => i.href === currentChapterHref);
-          if (idx !== -1 && idx < items.length - 1) return items[idx+1].href;
-          return null;
-       };
-       const nextHref = findNext(toc);
-       if (nextHref) {
-         setCurrentChapterHref(nextHref);
-         setCurrentSentenceIndex(0);
-       }
+      toast.success("书籍已删除");
+      setBooks(books.filter(b => b.id !== deleteBookId));
+    } catch (error) {
+      console.error("Failed to delete book:", error);
+      toast.error("删除失败");
+    } finally {
+      setDeleteBookId(null);
     }
   };
-  
-  const handlePrev = () => {
-     if (currentSentenceIndex > 0) {
-        ttsService.stop();
-        setCurrentSentenceIndex(p => p - 1);
-     }
-  };
-  
-  const togglePlay = () => {
-    if (isPlaying) {
-      // 暂停时立即停止音频，不等 useEffect
-      ttsService.stop();
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-
-  if (!bookId) {
-    return (
-      <div className="min-h-screen bg-background text-foreground relative overflow-hidden flex flex-col">
-         <div className="absolute top-4 right-4 z-50 flex gap-2">
-           <a 
-             href="https://github.com/LydiaCai1203/BookReader" 
-             target="_blank" 
-             rel="noopener noreferrer"
-           >
-             <Button variant="outline" size="sm" className="border-primary/20 hover:border-primary hover:bg-primary/10">
-               <Github className="w-4 h-4" />
-             </Button>
-           </a>
-           <TasksPanel />
-           <TranslationSettings config={transConfig} onConfigChange={handleConfigChange} />
-         </div>
-         <div className="flex-1 flex items-center justify-center">
-            <UploadZone 
-              onFileSelect={handleFileSelect} 
-              onDemoSelect={handleDemoSelect}
-              onBookSelect={handleBookSelect}
-            />
-         </div>
-      </div>
-    );
-  }
 
   return (
-    <>
-    <div className="h-[100dvh] w-screen bg-background text-foreground flex flex-col overflow-hidden relative pb-[72px]">
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
-        {!isMobile && (
-          <>
-            <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
-              <Sidebar 
-                toc={toc} 
-                currentChapterHref={currentChapterHref || ""}
-                onSelectChapter={(href) => { 
-                   ttsService.stop();  // 立即停止音频
-                   setCurrentChapterHref(href); 
-                   setCurrentSentenceIndex(0);
-                   setIsPlaying(false);
-                }}
-                coverUrl={cover}
-                title={metadata.title}
-                bookId={bookId || undefined}
-                selectedVoice={voice || undefined}
-                speed={speed}
-              />
-            </ResizablePanel>
-            <ResizableHandle />
-          </>
-        )}
-        
-        <ResizablePanel defaultSize={80}>
-          <div className="h-full flex flex-col relative">
-             {/* 移动端：左上角目录按钮 */}
-             {isMobile && (
-               <div className="absolute top-4 left-4 z-10">
-                 <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                   <SheetTrigger asChild>
-                     <Button variant="outline" size="sm" className="bg-background/50 backdrop-blur border-primary/20 hover:border-primary hover:bg-primary/10">
-                       <Menu className="w-4 h-4" />
-                     </Button>
-                   </SheetTrigger>
-                   <SheetContent side="left" className="w-[300px] p-0">
-                     <Sidebar 
-                       toc={toc} 
-                       currentChapterHref={currentChapterHref || ""}
-                       onSelectChapter={(href) => { 
-                          ttsService.stop();
-                          setCurrentChapterHref(href); 
-                          setCurrentSentenceIndex(0);
-                          setIsPlaying(false);
-                          setMobileMenuOpen(false); // 选择后关闭菜单
-                       }}
-                       coverUrl={cover}
-                       title={metadata.title}
-                       bookId={bookId || undefined}
-                       selectedVoice={voice || undefined}
-                       speed={speed}
-                     />
-                   </SheetContent>
-                 </Sheet>
-               </div>
-             )}
-
-             {/* 右上角按钮组 */}
-             <div className="absolute top-4 right-4 z-10 flex gap-2">
-                 <a 
-                   href="https://github.com/LydiaCai1203/BookReader" 
-                   target="_blank" 
-                   rel="noopener noreferrer"
-                 >
-                   <Button variant="outline" size="sm" className="bg-background/50 backdrop-blur border-primary/20 hover:border-primary hover:bg-primary/10">
-                     <Github className="w-4 h-4" />
-                   </Button>
-                 </a>
-                 <TasksPanel />
-                 <TranslationSettings config={transConfig} onConfigChange={handleConfigChange} />
-                 <Button variant="outline" size="sm" onClick={() => { ttsService.stop(); setBookId(null); setIsPlaying(false); }} className="bg-background/50 backdrop-blur hover:bg-destructive hover:text-destructive-foreground">
-                   退出
-                 </Button>
-             </div>
-
-             <div className="flex-1 overflow-hidden relative">
-                {(isChapterLoading || isTranslating) ? (
-                  <div className="absolute inset-0 flex flex-col gap-4 items-center justify-center bg-background/90 backdrop-blur z-20">
-                     <div className="relative">
-                        <Loader2 className="w-16 h-16 animate-spin text-primary" />
-                        {isTranslating && <Languages className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary animate-pulse" />}
-                     </div>
-                     <p className="font-display font-bold text-lg text-primary animate-pulse tracking-widest uppercase">
-                        {isTranslating ? "Translating..." : "Loading Data..."}
-                     </p>
-                  </div>
-                ) : null}
-                
-                <Reader 
-                  sentences={displayedSentences} 
-                  current={currentSentenceIndex}
-                  wordTimestamps={wordTimestamps}
-                  currentTime={currentTime}
-                  isPlaying={isPlaying}
-                  htmlContent={chapterData?.html}
-                />
-             </div>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b border-border bg-card/80 backdrop-blur-md py-3 px-4 sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BrainCircuit className="w-7 h-7 text-primary" />
+            <span className="font-display text-xl font-bold tracking-tight">
+              BookReader
+            </span>
           </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
+          
+          <div className="flex items-center gap-2">
+            <TasksPanel />
+            <Button
+              variant="ghost"
+              size="icon"
+              asChild
+            >
+              <a href="https://github.com" target="_blank" rel="noopener noreferrer">
+                <Github className="w-5 h-5" />
+              </a>
+            </Button>
+          </div>
+        </div>
+      </header>
 
-    <Controls 
-      isPlaying={isPlaying}
-      onPlayPause={togglePlay}
-      onNext={handleNext}
-      onPrev={handlePrev}
-      current={currentSentenceIndex}
-      total={displayedSentences.length}
-      progress={displayedSentences.length > 0 ? (currentSentenceIndex / displayedSentences.length) * 100 : 0}
-      
-      selectedVoice={voice}
-      onVoiceChange={setVoice}
-      emotion={emotion}
-      onEmotionChange={(e) => setEmotion(e)}
-      speed={speed}
-      onSpeedChange={setSpeed}
-      
-      bookId={bookId}
-      chapterHref={currentChapterHref}
-      sentences={displayedSentences}
-      chapterTitle={metadata?.title || "chapter"}
-    />
-    </>
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        {/* Upload Section */}
+        <section className="mb-12">
+          <h2 className="text-lg font-semibold mb-4 text-foreground">上传新书</h2>
+          <UploadZone 
+            onFileSelect={handleFileSelect} 
+            isLoading={uploadMutation.isPending} 
+          />
+        </section>
+
+        {/* Bookshelf Section */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-foreground">我的书架</h2>
+            <span className="text-sm text-muted-foreground">{books.length} 本书</span>
+          </div>
+
+          {isLoadingBooks ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            </div>
+          ) : books.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Book className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>书架空空如也</p>
+              <p className="text-sm mt-1">上传一本 EPUB 开始阅读吧</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {books.map((book) => (
+                <div
+                  key={book.id}
+                  className="group relative bg-card rounded-lg border border-border overflow-hidden hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer"
+                  onClick={() => handleBookClick(book.id)}
+                >
+                  {/* Cover */}
+                  <div className="aspect-[2/3] bg-muted overflow-hidden">
+                    {book.coverUrl ? (
+                      <img 
+                        src={book.coverUrl} 
+                        alt={book.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
+                        <Book className="w-12 h-12 text-primary/50" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Info */}
+                  <div className="p-3">
+                    <h3 className="font-medium text-sm line-clamp-2 leading-tight">
+                      {book.title}
+                    </h3>
+                    {book.author && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                        {book.author}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Delete button */}
+                  <button
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteBookId(book.id);
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteBookId} onOpenChange={() => setDeleteBookId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要从书架中删除这本书吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteBook} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }

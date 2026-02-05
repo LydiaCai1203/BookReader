@@ -6,6 +6,7 @@ import { useHashLocation } from "wouter/use-hash-location";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import Home from "@/pages/Home";
+import BookReader from "@/pages/BookReader";
 
 // React Query Client
 const queryClient = new QueryClient();
@@ -15,6 +16,7 @@ function AppRouter() {
     <Router hook={useHashLocation}>
       <Switch>
         <Route path="/" component={Home} />
+        <Route path="/book/:bookId" component={BookReader} />
       </Switch>
     </Router>
   );

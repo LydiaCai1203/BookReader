@@ -1,7 +1,6 @@
 import { useEffect, useRef, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
 import { BookOpen, Headphones } from "lucide-react";
 import type { WordTimestamp } from "@/api/types";
 import { API_BASE } from "@/config";
@@ -155,27 +154,35 @@ export function Reader({ sentences, current, wordTimestamps = [], currentTime = 
 
   return (
     <div className="h-full w-full flex flex-col bg-background overflow-hidden">
-      {/* 视图切换按钮 */}
+      {/* 视图切换开关 */}
       {htmlContent && (
-        <div className="flex-shrink-0 flex items-center justify-center gap-2 py-2 border-b border-border bg-card/50">
-          <Button
-            variant={viewMode === "play" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("play")}
-            className="text-xs inline-flex items-center"
-          >
-            <Headphones className="w-3.5 h-3.5 mr-1" />
-            <span>播放视图</span>
-          </Button>
-          <Button
-            variant={viewMode === "read" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("read")}
-            className="text-xs inline-flex items-center"
-          >
-            <BookOpen className="w-3.5 h-3.5 mr-1" />
-            <span>阅读视图</span>
-          </Button>
+        <div className="flex-shrink-0 flex items-center justify-center py-2 border-b border-border bg-card/50">
+          <div className="inline-flex items-center rounded-lg bg-muted p-1 text-muted-foreground">
+            <button
+              onClick={() => setViewMode("play")}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                viewMode === "play"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "hover:text-foreground"
+              )}
+            >
+              <Headphones className="w-3.5 h-3.5" />
+              播放
+            </button>
+            <button
+              onClick={() => setViewMode("read")}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                viewMode === "read"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "hover:text-foreground"
+              )}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              阅读
+            </button>
+          </div>
         </div>
       )}
       
