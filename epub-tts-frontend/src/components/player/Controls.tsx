@@ -305,7 +305,13 @@ export function Controls({
                 <Settings2 className="w-5 h-5" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 p-0 border border-primary/20 bg-card/95 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] rounded-none" side="top" align="end">
+            <PopoverContent 
+              className="w-80 p-0 border border-primary/20 bg-card/95 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] rounded-none max-h-[70vh] overflow-y-auto" 
+              side="top" 
+              align="end"
+              sideOffset={8}
+              collisionPadding={16}
+            >
               <div className="p-4 space-y-4">
                 <div className="flex items-center justify-between border-b border-border pb-2 mb-2">
                   <h4 className="font-bold text-sm tracking-wide">音频设置</h4>
