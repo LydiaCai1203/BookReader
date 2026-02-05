@@ -48,7 +48,7 @@ export default function Home() {
       setBooks(data.map((book: any) => ({
         id: book.id,
         title: book.title || "Unknown",
-        author: book.creator || book.author,  // 后端字段是 creator
+        author: book.creator || book.author,
         coverUrl: book.coverUrl 
           ? (book.coverUrl.startsWith('http') ? book.coverUrl : `${API_BASE}${book.coverUrl}`)
           : undefined,
@@ -65,7 +65,6 @@ export default function Home() {
     toast.promise(uploadMutation.mutateAsync(file), {
       loading: '正在上传并解析书籍...',
       success: (data) => {
-        // 上传成功后直接跳转到阅读页
         navigate(`/book/${data.bookId}`);
         return "书籍已就绪";
       },
@@ -124,17 +123,30 @@ export default function Home() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
+        {/* Hero Title */}
+        <div className="mb-8 text-center space-y-4">
+          <h1 className="text-5xl font-display font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-primary via-primary/80 to-primary/50">
+            CYBER READER
+          </h1>
+          <p className="text-muted-foreground text-lg font-mono">
+            EPUB TO AUDIO // NEURAL LINK ESTABLISHED
+          </p>
+        </div>
+
         {/* Upload Section */}
         <section className="mb-12">
-          <h2 className="text-lg font-semibold mb-4 text-foreground">上传新书</h2>
           <UploadZone onFileSelect={handleFileSelect} />
         </section>
 
         {/* Bookshelf Section */}
-        <section>
+        <section className="mt-12">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-foreground">我的书架</h2>
-            <span className="text-sm text-muted-foreground">{books.length} 本书</span>
+            <h2 className="text-lg font-display font-bold tracking-wide text-foreground">
+              我的书架
+            </h2>
+            <span className="text-xs font-mono text-muted-foreground">
+              {books.length} 本书
+            </span>
           </div>
 
           {isLoadingBooks ? (
@@ -143,20 +155,19 @@ export default function Home() {
             </div>
           ) : books.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <Book className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>书架空空如也</p>
-              <p className="text-sm mt-1">上传一本 EPUB 开始阅读吧</p>
+              <Book className="w-12 h-12 mx-auto mb-4 opacity-30" />
+              <p className="text-sm font-mono">书架空空如也，上传你的第一本书吧</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {books.map((book) => (
                 <div
                   key={book.id}
-                  className="group relative bg-card rounded-lg border border-border overflow-hidden hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer"
                   onClick={() => handleBookClick(book.id)}
+                  className="group relative bg-card/50 border border-border hover:border-primary/50 rounded-sm overflow-hidden cursor-pointer transition-all hover:shadow-[0_0_20px_rgba(204,255,0,0.1)] hover:-translate-y-1"
                 >
-                  {/* Cover */}
-                  <div className="aspect-[2/3] bg-muted overflow-hidden">
+                  {/* 封面 */}
+                  <div className="aspect-[3/4] bg-secondary overflow-hidden">
                     {book.coverUrl ? (
                       <img 
                         src={book.coverUrl} 
@@ -165,32 +176,31 @@ export default function Home() {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
-                        <Book className="w-12 h-12 text-primary/50" />
+                        <Book className="w-12 h-12 text-primary/40" />
                       </div>
                     )}
                   </div>
                   
-                  {/* Info */}
+                  {/* 书名和作者 */}
                   <div className="p-3">
-                    <h3 className="font-medium text-sm line-clamp-2 leading-tight">
+                    <h3 className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors">
                       {book.title}
                     </h3>
-                    {book.author && (
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                        {book.author}
-                      </p>
-                    )}
+                    <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                      {book.author || "未知作者"}
+                    </p>
                   </div>
-
-                  {/* Delete button */}
+                  
+                  {/* 删除按钮 */}
                   <button
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       setDeleteBookId(book.id);
                     }}
+                    className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-destructive rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="删除"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-3.5 h-3.5 text-white" />
                   </button>
                 </div>
               ))}
