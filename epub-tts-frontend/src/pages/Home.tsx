@@ -454,6 +454,7 @@ export default function Home() {
                   wordTimestamps={wordTimestamps}
                   currentTime={currentTime}
                   isPlaying={isPlaying}
+                  htmlContent={chapterData?.html}
                 />
              </div>
           </div>

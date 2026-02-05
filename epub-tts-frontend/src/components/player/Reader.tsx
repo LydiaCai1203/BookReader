@@ -1,7 +1,10 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { BookOpen, Headphones } from "lucide-react";
 import type { WordTimestamp } from "@/api/types";
+import { API_BASE } from "@/config";
 
 interface ReaderProps {
   sentences: string[];
@@ -9,12 +12,14 @@ interface ReaderProps {
   wordTimestamps?: WordTimestamp[];
   currentTime?: number; // 当前播放时间（毫秒）
   isPlaying?: boolean;
+  htmlContent?: string; // 包含图片的 HTML 内容
 }
 
-export function Reader({ sentences, current, wordTimestamps = [], currentTime = 0, isPlaying = false }: ReaderProps) {
+export function Reader({ sentences, current, wordTimestamps = [], currentTime = 0, isPlaying = false, htmlContent }: ReaderProps) {
   const activeRef = useRef<HTMLDivElement>(null);
   const activeWordRef = useRef<HTMLSpanElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewMode, setViewMode] = useState<"play" | "read">("play"); // play=播放视图, read=阅读视图（含图片）
 
   // 计算当前高亮的词索引
   const currentWordIndex = useMemo(() => {
@@ -133,50 +138,109 @@ export function Reader({ sentences, current, wordTimestamps = [], currentTime = 
     return result.length > 0 ? result : <span>{text}</span>;
   };
 
+  // 处理 HTML 内容中的图片 URL（添加 API_BASE 前缀）
+  const processedHtml = useMemo(() => {
+    if (!htmlContent) return "";
+    // 替换相对路径的图片 URL 为绝对路径
+    return htmlContent.replace(/src="\/images\//g, `src="${API_BASE}/images/`);
+  }, [htmlContent]);
+
+  // 播放时自动切换到播放视图
+  useEffect(() => {
+    if (isPlaying) {
+      setViewMode("play");
+    }
+  }, [isPlaying]);
+
   return (
-    <ScrollArea className="h-full w-full px-4 md:px-12 py-8 bg-background relative" ref={scrollRef}>
-       <div className="max-w-3xl mx-auto space-y-6 pb-20">
-         {sentences.map((text, index) => {
-           const isActive = index === current;
-           const isPast = index < current;
-           
-           return (
-             <div
-               key={index}
-               id={`sentence-${index}`}
-               ref={isActive ? activeRef : null}
-               className={cn(
-                 "transition-all duration-500 ease-out p-4 rounded-sm border-l-2",
-                 isActive 
-                   ? "bg-primary/5 border-primary text-foreground shadow-[0_0_20px_rgba(204,255,0,0.1)] scale-[1.02]" 
-                   : isPast 
-                     ? "border-transparent text-muted-foreground/40 blur-[0.5px]" 
-                     : "border-transparent text-muted-foreground opacity-70"
-               )}
-             >
-               <p className={cn(
-                 "leading-relaxed font-serif text-lg md:text-xl",
-                 isActive ? "font-medium" : "font-normal"
-               )}>
-                 {renderHighlightedText(text, isActive)}
-               </p>
-               {isActive && (
-                 <div className="mt-2 flex items-center gap-2">
-                    <span className="h-[1px] w-4 bg-primary/50" />
-                    <span className="text-[10px] font-mono text-primary uppercase tracking-widest">
-                      {isPlaying ? "Reading Now" : "Paused"}
-                    </span>
-                    {isPlaying && wordTimestamps.length > 0 && (
-                      <span className="text-[10px] font-mono text-muted-foreground">
-                        {currentWordIndex + 1}/{wordTimestamps.length}
+    <div className="h-full w-full flex flex-col bg-background">
+      {/* 视图切换按钮 */}
+      {htmlContent && (
+        <div className="flex justify-center gap-2 py-2 border-b border-border bg-card/50">
+          <Button
+            variant={viewMode === "play" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("play")}
+            className="text-xs"
+          >
+            <Headphones className="w-3.5 h-3.5 mr-1" />
+            播放视图
+          </Button>
+          <Button
+            variant={viewMode === "read" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("read")}
+            className="text-xs"
+          >
+            <BookOpen className="w-3.5 h-3.5 mr-1" />
+            阅读视图
+          </Button>
+        </div>
+      )}
+      
+      <ScrollArea className="flex-1 w-full px-4 md:px-12 py-8 relative" ref={scrollRef}>
+        {viewMode === "read" && htmlContent ? (
+          // 阅读视图：显示原始 HTML（包含图片）
+          <div 
+            className="max-w-3xl mx-auto pb-20 
+              [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-primary [&_h1]:my-6
+              [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-primary [&_h2]:my-5
+              [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:text-primary [&_h3]:my-4
+              [&_p]:text-foreground [&_p]:leading-relaxed [&_p]:my-4 [&_p]:text-lg
+              [&_img]:rounded-lg [&_img]:shadow-lg [&_img]:mx-auto [&_img]:my-6 [&_img]:max-w-full
+              [&_a]:text-primary [&_a]:underline-offset-2 hover:[&_a]:underline
+              [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4
+              [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4
+              [&_li]:my-1 [&_li]:text-foreground
+              [&_blockquote]:border-l-4 [&_blockquote]:border-primary/50 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:my-4"
+            dangerouslySetInnerHTML={{ __html: processedHtml }}
+          />
+        ) : (
+          // 播放视图：显示分段文本（带高亮）
+          <div className="max-w-3xl mx-auto space-y-6 pb-20">
+            {sentences.map((text, index) => {
+              const isActive = index === current;
+              const isPast = index < current;
+              
+              return (
+                <div
+                  key={index}
+                  id={`sentence-${index}`}
+                  ref={isActive ? activeRef : null}
+                  className={cn(
+                    "transition-all duration-500 ease-out p-4 rounded-sm border-l-2",
+                    isActive 
+                      ? "bg-primary/5 border-primary text-foreground shadow-[0_0_20px_rgba(204,255,0,0.1)] scale-[1.02]" 
+                      : isPast 
+                        ? "border-transparent text-muted-foreground/40 blur-[0.5px]" 
+                        : "border-transparent text-muted-foreground opacity-70"
+                  )}
+                >
+                  <p className={cn(
+                    "leading-relaxed font-serif text-lg md:text-xl",
+                    isActive ? "font-medium" : "font-normal"
+                  )}>
+                    {renderHighlightedText(text, isActive)}
+                  </p>
+                  {isActive && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="h-[1px] w-4 bg-primary/50" />
+                      <span className="text-[10px] font-mono text-primary uppercase tracking-widest">
+                        {isPlaying ? "Reading Now" : "Paused"}
                       </span>
-                    )}
-                 </div>
-               )}
-             </div>
-           );
-         })}
-       </div>
-    </ScrollArea>
+                      {isPlaying && wordTimestamps.length > 0 && (
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          {currentWordIndex + 1}/{wordTimestamps.length}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </ScrollArea>
+    </div>
   );
 }

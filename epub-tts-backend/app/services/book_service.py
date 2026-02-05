@@ -13,6 +13,7 @@ from datetime import datetime
 
 UPLOAD_DIR = "data/uploads"
 LIBRARY_INDEX_FILE = "data/uploads/library.json"
+IMAGES_DIR = "data/images"
 
 
 class BookLibrary:
@@ -208,10 +209,76 @@ class BookService:
         return toc
 
     @staticmethod
+    def extract_images(book_id: str) -> Dict[str, str]:
+        """
+        提取书籍中的所有图片，保存到静态目录
+        返回: {原始路径: 服务器URL} 的映射
+        """
+        path = BookService.get_book_path(book_id)
+        if not os.path.exists(path):
+            return {}
+        
+        # 创建书籍专属的图片目录
+        book_images_dir = os.path.join(IMAGES_DIR, book_id)
+        os.makedirs(book_images_dir, exist_ok=True)
+        
+        # 检查是否已提取过（存在映射文件）
+        mapping_file = os.path.join(book_images_dir, "_mapping.json")
+        if os.path.exists(mapping_file):
+            try:
+                with open(mapping_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                pass
+        
+        book = epub.read_epub(path)
+        image_mapping = {}
+        
+        for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+            try:
+                original_name = item.get_name()  # e.g., "images/fig1.png" or "OEBPS/Images/cover.jpg"
+                
+                # 生成安全的文件名
+                ext = os.path.splitext(original_name)[1].lower() or '.jpg'
+                safe_name = hashlib.md5(original_name.encode()).hexdigest()[:12] + ext
+                
+                # 保存图片
+                image_path = os.path.join(book_images_dir, safe_name)
+                with open(image_path, "wb") as f:
+                    f.write(item.get_content())
+                
+                # 记录映射：原始路径 -> 服务器URL
+                # 需要处理多种可能的原始路径格式
+                server_url = f"/images/{book_id}/{safe_name}"
+                
+                # 保存多种可能的键（EPUB 内部引用可能用不同格式）
+                image_mapping[original_name] = server_url
+                # 也保存不带目录的文件名
+                base_name = os.path.basename(original_name)
+                image_mapping[base_name] = server_url
+                # 保存相对路径变体
+                if original_name.startswith('OEBPS/'):
+                    image_mapping[original_name[6:]] = server_url
+                if original_name.startswith('OPS/'):
+                    image_mapping[original_name[4:]] = server_url
+                    
+            except Exception as e:
+                print(f"[BookService] Failed to extract image {item.get_name()}: {e}")
+        
+        # 保存映射文件
+        with open(mapping_file, 'w', encoding='utf-8') as f:
+            json.dump(image_mapping, f, ensure_ascii=False, indent=2)
+        
+        return image_mapping
+
+    @staticmethod
     def get_chapter_content(book_id: str, href: str) -> Dict[str, Any]:
         path = BookService.get_book_path(book_id)
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="Book not found")
+        
+        # 先提取图片（如果尚未提取）
+        image_mapping = BookService.extract_images(book_id)
             
         book = epub.read_epub(path)
         
@@ -222,6 +289,9 @@ class BookService:
             base_href, anchor = href.split('#', 1)
         else:
             base_href = href
+        
+        # 获取章节的目录路径（用于解析相对路径）
+        chapter_dir = os.path.dirname(base_href)
         
         # Find item by href
         target_item = None
@@ -240,6 +310,34 @@ class BookService:
         # Parse HTML content
         content = target_item.get_content()
         soup = BeautifulSoup(content, 'html.parser')
+        
+        # 处理图片：替换 src 为服务器 URL
+        for img in soup.find_all('img'):
+            src = img.get('src', '')
+            if not src:
+                continue
+            
+            # 尝试多种路径匹配
+            server_url = None
+            
+            # 1. 直接匹配
+            if src in image_mapping:
+                server_url = image_mapping[src]
+            # 2. 解析相对路径
+            elif chapter_dir:
+                full_path = os.path.normpath(os.path.join(chapter_dir, src)).replace('\\', '/')
+                if full_path in image_mapping:
+                    server_url = image_mapping[full_path]
+            # 3. 只匹配文件名
+            if not server_url:
+                base_name = os.path.basename(src)
+                if base_name in image_mapping:
+                    server_url = image_mapping[base_name]
+            
+            if server_url:
+                img['src'] = server_url
+                # 添加一些默认样式
+                img['style'] = img.get('style', '') + '; max-width: 100%; height: auto;'
         
         # 如果有锚点，尝试定位到特定元素
         target_element = None
@@ -382,8 +480,13 @@ class BookService:
         if not sentences and text.strip():
             sentences = [text.strip()]
         
+        # 提取处理后的 HTML 内容（包含正确的图片 URL）
+        body = soup.find('body')
+        html_content = str(body) if body else str(soup)
+        
         return {
             "href": href,
             "text": text,
-            "sentences": sentences
+            "sentences": sentences,
+            "html": html_content  # 包含图片的 HTML 内容
         }

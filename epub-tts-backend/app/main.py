@@ -24,10 +24,12 @@ app.add_middleware(
 # Ensure data directories exist
 os.makedirs("data/uploads", exist_ok=True)
 os.makedirs("data/audio", exist_ok=True)
+os.makedirs("data/images", exist_ok=True)
 
-# Mount static files for audio playback
+# Mount static files for audio playback and images
 app.mount("/audio", StaticFiles(directory="data/audio"), name="audio")
 app.mount("/covers", StaticFiles(directory="data/uploads"), name="covers")
+app.mount("/images", StaticFiles(directory="data/images"), name="images")
 
 # Include API Router
 app.include_router(router, prefix="/api")

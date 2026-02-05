@@ -17,6 +17,7 @@ export interface ChapterContent {
   href: string;
   text: string;
   sentences: string[];
+  html?: string;  // 包含图片的 HTML 内容
 }
 
 export interface TTSOptions {
