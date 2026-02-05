@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { ListTodo, Download, Trash2, Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
@@ -161,7 +160,7 @@ export function TasksPanel() {
         </Button>
       </SheetTrigger>
       
-      <SheetContent className="w-[400px] sm:w-[450px] p-0">
+      <SheetContent className="w-[400px] sm:w-[450px] p-0 !h-auto top-auto bottom-0">
         <SheetHeader className="p-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2">
             <ListTodo className="w-5 h-5" />
@@ -174,113 +173,111 @@ export function TasksPanel() {
           </SheetTitle>
         </SheetHeader>
         
-        <ScrollArea className="h-[calc(100vh-80px)]">
-          {tasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-              <ListTodo className="w-12 h-12 mb-2 opacity-30" />
-              <p className="text-sm">暂无任务</p>
-            </div>
-          ) : (
-            <div className="p-4 space-y-3">
-              {tasks.map((task) => (
-                <div
-                  key={task.id}
-                  className={cn(
-                    "p-4 rounded-lg border transition-colors",
-                    task.status === "running" && "border-primary/50 bg-primary/5",
-                    task.status === "completed" && "border-green-500/30 bg-green-500/5",
-                    task.status === "failed" && "border-destructive/30 bg-destructive/5",
-                    task.status === "pending" && "border-border bg-card"
-                  )}
-                >
-                  {/* 标题和状态 */}
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      {getStatusIcon(task.status)}
-                      <span className="font-medium text-sm truncate">
-                        {task.title}
-                      </span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDelete(task.id)}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+        {tasks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+            <ListTodo className="w-12 h-12 mb-2 opacity-30" />
+            <p className="text-sm">暂无任务</p>
+          </div>
+        ) : (
+          <div className="p-4 space-y-3">
+            {tasks.map((task) => (
+              <div
+                key={task.id}
+                className={cn(
+                  "p-4 rounded-lg border transition-colors overflow-hidden",
+                  task.status === "running" && "border-primary/50 bg-primary/5",
+                  task.status === "completed" && "border-green-500/30 bg-green-500/5",
+                  task.status === "failed" && "border-destructive/30 bg-destructive/5",
+                  task.status === "pending" && "border-border bg-card"
+                )}
+              >
+                {/* 标题和状态 */}
+                <div className="flex items-start justify-between gap-2 mb-2 min-w-0">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {getStatusIcon(task.status)}
+                    <span className="font-medium text-sm truncate min-w-0">
+                      {task.title}
+                    </span>
                   </div>
-                  
-                  {/* 进度条 */}
-                  {(task.status === "running" || task.status === "pending") && (
-                    <div className="mb-2">
-                      <Progress value={task.progress} className="h-2" />
-                      <div className="flex items-center justify-between mt-1">
-                        <p className="text-xs text-muted-foreground">
-                          {task.progressText}
-                        </p>
-                        <p className="text-xs font-mono text-primary">
-                          {task.progress}%
-                        </p>
-                      </div>
-                      {/* 时间信息 */}
-                      {task.status === "running" && task.startedAt && (() => {
-                        const { elapsed, eta } = getTimeInfo(task);
-                        return (
-                          <div className="flex items-center justify-between mt-1.5 text-[10px] text-muted-foreground font-mono">
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              已用 {formatDuration(elapsed)}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDelete(task.id)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                
+                {/* 进度条 */}
+                {(task.status === "running" || task.status === "pending") && (
+                  <div className="mb-2">
+                    <Progress value={task.progress} className="h-2" />
+                    <div className="flex items-center justify-between gap-2 mt-1 min-w-0">
+                      <p className="text-xs text-muted-foreground truncate min-w-0 flex-1">
+                        {task.progressText}
+                      </p>
+                      <p className="text-xs font-mono text-primary shrink-0">
+                        {task.progress}%
+                      </p>
+                    </div>
+                    {/* 时间信息 */}
+                    {task.status === "running" && task.startedAt && (() => {
+                      const { elapsed, eta } = getTimeInfo(task);
+                      return (
+                        <div className="flex items-center justify-between gap-2 mt-1.5 text-[10px] text-muted-foreground font-mono min-w-0">
+                          <span className="flex items-center gap-1 shrink-0">
+                            <Clock className="w-3 h-3" />
+                            已用 {formatDuration(elapsed)}
+                          </span>
+                          {eta !== null && (
+                            <span className="shrink-0">
+                              预计剩余 {formatDuration(eta)}
                             </span>
-                            {eta !== null && (
-                              <span>
-                                预计剩余 {formatDuration(eta)}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-                  
-                  {/* 错误信息 */}
-                  {task.status === "failed" && task.error && (
-                    <p className="text-xs text-destructive mb-2">
-                      错误: {task.error}
-                    </p>
-                  )}
-                  
-                  {/* 完成结果 */}
-                  {task.status === "completed" && task.result && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
-                        {task.result.sizeFormatted}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs border-green-500/30 text-green-600 hover:bg-green-500/10"
-                        onClick={() => handleDownload(task)}
-                      >
-                        <Download className="w-3.5 h-3.5 mr-1" />
-                        下载
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {/* 时间 */}
-                  <div className="text-[10px] text-muted-foreground mt-2">
-                    创建于 {formatTime(task.createdAt)}
-                    {task.completedAt && task.startedAt && (() => {
-                      const totalSec = (new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000;
-                      return ` · 耗时 ${formatDuration(totalSec)}`;
+                          )}
+                        </div>
+                      );
                     })()}
                   </div>
+                )}
+                
+                {/* 错误信息 */}
+                {task.status === "failed" && task.error && (
+                  <p className="text-xs text-destructive mb-2 break-words">
+                    错误: {task.error}
+                  </p>
+                )}
+                
+                {/* 完成结果 */}
+                {task.status === "completed" && task.result && (
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <span className="text-xs text-muted-foreground truncate min-w-0 flex-1">
+                      {task.result.sizeFormatted}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-green-500/30 text-green-600 hover:bg-green-500/10 shrink-0"
+                      onClick={() => handleDownload(task)}
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1" />
+                      下载
+                    </Button>
+                  </div>
+                )}
+                
+                {/* 时间 */}
+                <div className="text-[10px] text-muted-foreground mt-2 break-words">
+                  创建于 {formatTime(task.createdAt)}
+                  {task.completedAt && task.startedAt && (() => {
+                    const totalSec = (new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000;
+                    return ` · 耗时 ${formatDuration(totalSec)}`;
+                  })()}
                 </div>
-              ))}
-            </div>
-          )}
-        </ScrollArea>
+              </div>
+            ))}
+          </div>
+        )}
       </SheetContent>
     </Sheet>
   );
