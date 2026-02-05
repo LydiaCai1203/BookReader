@@ -103,7 +103,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <BrainCircuit className="w-7 h-7 text-primary" />
             <span className="font-display text-xl font-bold tracking-tight">
-              BookReader
+              DeepReader
             </span>
           </div>
           
@@ -126,7 +126,7 @@ export default function Home() {
         {/* Hero Title */}
         <div className="mb-8 text-center space-y-4">
           <h1 className="text-5xl font-display font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-primary via-primary/80 to-primary/50">
-            CYBER READER
+            DEEP READER
           </h1>
           <p className="text-muted-foreground text-lg font-mono">
             EPUB TO AUDIO // NEURAL LINK ESTABLISHED
