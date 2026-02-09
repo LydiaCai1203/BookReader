@@ -133,8 +133,38 @@ async def get_book(book_id: str):
     BookLibrary.update_last_opened(book_id)
     
     # 获取完整信息
-    meta_info = BookService.parse_metadata(book_id)
-    toc = BookService.get_toc(book_id)
+    try:
+        meta_info = BookService.parse_metadata(book_id)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to parse metadata: {str(e)}"
+        print(f"Error parsing metadata: {error_detail}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=error_detail)
+    
+    try:
+        toc = BookService.get_toc(book_id)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        import traceback
+        error_detail = f"Failed to parse TOC: {str(e)}"
+        print(f"Error parsing TOC: {error_detail}")
+        traceback.print_exc()
+        # TOC 解析失败不应该阻止返回书籍信息，返回空 TOC
+        toc = []
+    
+    # 如果 TOC 为空，尝试获取第一个可用章节
+    if not toc:
+        try:
+            first_chapter = BookService.get_first_available_chapter(book_id)
+            if first_chapter:
+                toc = [first_chapter]
+                print(f"Using first available chapter as TOC: {first_chapter['href']}")
+        except Exception as e:
+            print(f"Warning: Failed to get first chapter: {e}")
     
     return {
         "bookId": book_id,

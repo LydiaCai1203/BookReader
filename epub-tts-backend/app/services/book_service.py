@@ -225,50 +225,144 @@ class BookService:
                 print(f"Warning: Error processing TOC: {e}")
                 # Continue to fallback
             
-            # If TOC is empty, fallback to spine
+            # If TOC is empty, fallback to spine (reading order)
             if not toc:
                 try:
+                    # Try to get items from spine (reading order) - this is the most reliable method
+                    spine = book.spine
                     spine_items = []
+                    chapter_num = 1
+                    
+                    for item_id, _ in spine:
+                        try:
+                            item = book.get_item_by_id(item_id)
+                            if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
+                                item_name = item.get_name()
+                                if item_name:
+                                    # Generate a readable label
+                                    label = os.path.basename(item_name)
+                                    # Remove common extensions
+                                    label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
+                                    # If label is empty or just numbers, use chapter number
+                                    if not label or label.isdigit():
+                                        label = f"第 {chapter_num} 章"
+                                    else:
+                                        # Clean up the label
+                                        label = label.replace('_', ' ').replace('-', ' ')
+                                    
+                                    spine_items.append({
+                                        "id": str(uuid.uuid4()),
+                                        "href": item_name,
+                                        "label": label or f"Chapter {chapter_num}",
+                                        "subitems": []
+                                    })
+                                    chapter_num += 1
+                        except Exception as e:
+                            print(f"Warning: Failed to get spine item {item_id}: {e}")
+                            continue
+                    
+                    if spine_items:
+                        toc = spine_items
+                        print(f"Using spine fallback: {len(toc)} chapters")
+                except Exception as e:
+                    print(f"Warning: Error getting items from spine: {e}")
+            
+            # If still empty, try to get all document items
+            if not toc:
+                try:
+                    all_items = []
+                    chapter_num = 1
                     for item in book.get_items():
                         try:
                             if item.get_type() == ebooklib.ITEM_DOCUMENT:
                                 item_name = item.get_name()
-                                item_id = item.get_id()
                                 if item_name:
-                                    spine_items.append({
-                                        "id": item_id or str(uuid.uuid4()),
+                                    # Skip common non-content files
+                                    if any(skip in item_name.lower() for skip in ['cover', 'titlepage', 'toc', 'nav']):
+                                        continue
+                                    
+                                    label = os.path.basename(item_name)
+                                    label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
+                                    if not label or label.isdigit():
+                                        label = f"第 {chapter_num} 章"
+                                    
+                                    all_items.append({
+                                        "id": str(uuid.uuid4()),
                                         "href": item_name,
-                                        "label": os.path.basename(item_name) or "Chapter", # Fallback label
+                                        "label": label or f"Chapter {chapter_num}",
                                         "subitems": []
                                     })
+                                    chapter_num += 1
                         except Exception as e:
-                            print(f"Warning: Failed to process spine item: {e}")
+                            print(f"Warning: Failed to process item: {e}")
                             continue
-                    toc = spine_items
+                    
+                    if all_items:
+                        toc = all_items
+                        print(f"Using all items fallback: {len(toc)} chapters")
                 except Exception as e:
-                    print(f"Warning: Error falling back to spine: {e}")
-                    # Return empty TOC if both methods fail
-                    pass
+                    print(f"Warning: Last resort failed: {e}")
             
-            # If still empty, try to get any document items
-            if not toc:
-                try:
-                    for item in book.get_items():
-                        try:
-                            if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                                toc.append({
-                                    "id": str(uuid.uuid4()),
-                                    "href": item.get_name() or "",
-                                    "label": "Chapter",
-                                    "subitems": []
-                                })
-                                break  # At least add one item
-                        except:
-                            continue
-                except:
-                    pass
+            print(f"TOC parsed: {len(toc)} items")
+            if toc:
+                print(f"First chapter: {toc[0]}")
+            else:
+                print("WARNING: TOC is empty after all fallback attempts")
                      
             return toc
+    
+    @staticmethod
+    def get_first_available_chapter(book_id: str) -> Optional[Dict[str, Any]]:
+        """获取第一个可用的章节（当 TOC 为空时使用）"""
+        path = BookService.get_book_path(book_id)
+        if not os.path.exists(path):
+            return None
+        
+        try:
+            book = epub.read_epub(path)
+            
+            # 优先从 spine 获取（阅读顺序）
+            try:
+                spine = book.spine
+                for item_id, _ in spine:
+                    try:
+                        item = book.get_item_by_id(item_id)
+                        if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
+                            item_name = item.get_name()
+                            if item_name:
+                                return {
+                                    "id": str(uuid.uuid4()),
+                                    "href": item_name,
+                                    "label": "第 1 章",
+                                    "subitems": []
+                                }
+                    except:
+                        continue
+            except:
+                pass
+            
+            # 回退：获取任何文档项
+            for item in book.get_items():
+                try:
+                    if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                        item_name = item.get_name()
+                        if item_name:
+                            # 跳过常见非内容文件
+                            if any(skip in item_name.lower() for skip in ['cover', 'titlepage', 'toc', 'nav']):
+                                continue
+                            return {
+                                "id": str(uuid.uuid4()),
+                                "href": item_name,
+                                "label": "第 1 章",
+                                "subitems": []
+                            }
+                except:
+                    continue
+            
+            return None
+        except Exception as e:
+            print(f"Error getting first chapter: {e}")
+            return None
         except Exception as e:
             import traceback
             error_detail = f"Failed to parse EPUB TOC: {str(e)}"

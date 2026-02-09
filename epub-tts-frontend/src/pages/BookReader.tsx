@@ -75,12 +75,58 @@ export default function BookReader() {
         return res.json();
       })
       .then(data => {
+        console.log("Book data loaded:", data);
         setMetadata(data.metadata);
-        setToc(data.toc);
+        setToc(data.toc || []);
         if (data.coverUrl) setCover(`${API_BASE}${data.coverUrl}`);
         
-        if (data.toc.length > 0) {
-          setCurrentChapterHref(data.toc[0].href);
+        // 查找第一个有效的章节
+        if (data.toc && data.toc.length > 0) {
+          const firstChapter = data.toc.find((item: NavItem) => item.href && item.href.trim());
+          if (firstChapter) {
+            setCurrentChapterHref(firstChapter.href);
+          } else {
+            console.warn("No valid chapter href found in TOC:", data.toc);
+            // 尝试从所有 TOC 项中找到第一个有效的
+            const anyValidChapter = data.toc.find((item: NavItem) => {
+              // 递归查找子项
+              const findValid = (nav: NavItem): NavItem | null => {
+                if (nav.href && nav.href.trim()) return nav;
+                if (nav.subitems && nav.subitems.length > 0) {
+                  for (const sub of nav.subitems) {
+                    const found = findValid(sub);
+                    if (found) return found;
+                  }
+                }
+                return null;
+              };
+              return findValid(item);
+            });
+            if (anyValidChapter) {
+              const findValidHref = (nav: NavItem): string | null => {
+                if (nav.href && nav.href.trim()) return nav.href;
+                if (nav.subitems && nav.subitems.length > 0) {
+                  for (const sub of nav.subitems) {
+                    const href = findValidHref(sub);
+                    if (href) return href;
+                  }
+                }
+                return null;
+              };
+              const href = findValidHref(anyValidChapter);
+              if (href) {
+                setCurrentChapterHref(href);
+              } else {
+                toast.warning("书籍目录格式异常，正在尝试加载内容...");
+              }
+            } else {
+              toast.warning("书籍目录格式异常，正在尝试加载内容...");
+            }
+          }
+        } else {
+          console.warn("TOC is empty, but book may still have content");
+          // TOC 为空时不显示错误，让用户知道系统会尝试加载
+          toast.info("书籍目录为空，正在尝试从内容中加载...");
         }
       })
       .catch(error => {
@@ -373,6 +419,17 @@ export default function BookReader() {
                 </span>
               </div>
             </div>
+          ) : displayedSentences.length === 0 && !currentChapterHref ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center space-y-4">
+                <p className="text-muted-foreground font-mono text-sm">
+                  书籍目录为空，无法显示内容
+                </p>
+                <Button onClick={() => navigate("/")} variant="outline">
+                  返回书架
+                </Button>
+              </div>
+            </div>
           ) : (
             <Reader 
               sentences={displayedSentences} 
@@ -399,6 +456,17 @@ export default function BookReader() {
                     <span className="text-muted-foreground font-mono text-sm uppercase tracking-wider">
                       {isTranslating ? "Translating..." : "Loading Chapter..."}
                     </span>
+                  </div>
+                </div>
+              ) : displayedSentences.length === 0 && !currentChapterHref ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center space-y-4">
+                    <p className="text-muted-foreground font-mono text-sm">
+                      书籍目录为空，无法显示内容
+                    </p>
+                    <Button onClick={() => navigate("/")} variant="outline">
+                      返回书架
+                    </Button>
                   </div>
                 </div>
               ) : (
