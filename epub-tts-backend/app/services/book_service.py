@@ -142,71 +142,139 @@ class BookService:
             
             # Try to find cover image
             cover_item = None
-            for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
-                if 'cover' in item.get_name().lower() or 'cover' in item.get_id().lower():
-                    cover_item = item
-                    break
-            
-            if cover_item:
-                cover_filename = f"{book_id}_cover.jpg" # Assume jpg/png
-                cover_path = os.path.join(UPLOAD_DIR, cover_filename)
-                with open(cover_path, "wb") as f:
-                    f.write(cover_item.get_content())
-                cover_url = f"/covers/{cover_filename}"
+            try:
+                for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+                    try:
+                        item_name = item.get_name().lower() if item.get_name() else ""
+                        item_id = item.get_id().lower() if item.get_id() else ""
+                        if 'cover' in item_name or 'cover' in item_id:
+                            cover_item = item
+                            break
+                    except Exception:
+                        continue
+                
+                if cover_item:
+                    try:
+                        cover_filename = f"{book_id}_cover.jpg" # Assume jpg/png
+                        cover_path = os.path.join(UPLOAD_DIR, cover_filename)
+                        with open(cover_path, "wb") as f:
+                            f.write(cover_item.get_content())
+                        cover_url = f"/covers/{cover_filename}"
+                    except Exception as e:
+                        print(f"Warning: Failed to extract cover image: {e}")
+                        cover_url = None
+            except Exception as e:
+                print(f"Warning: Error while searching for cover: {e}")
+                cover_url = None
 
             return {"metadata": metadata, "coverUrl": cover_url}
         except Exception as e:
-            print(f"Error parsing metadata: {e}")
-            raise HTTPException(status_code=500, detail="Failed to parse EPUB")
+            import traceback
+            error_detail = f"Failed to parse EPUB metadata: {str(e)}"
+            print(f"Error parsing metadata: {error_detail}")
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
 
     @staticmethod
     def get_toc(book_id: str) -> List[Dict[str, Any]]:
         path = BookService.get_book_path(book_id)
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="Book not found")
-            
-        book = epub.read_epub(path)
-        toc = []
         
-        # Recursive function to parse TOC
-        def parse_nav_map(nav_point):
-            # Ebooklib TOC structure can be complex (tuple or Link object)
-            # Typically: (Link, [child_links]) or Link
-            if isinstance(nav_point, tuple) or isinstance(nav_point, list):
-                link = nav_point[0]
-                children = nav_point[1] if len(nav_point) > 1 else []
-            else:
-                link = nav_point
-                children = []
-                
-            if hasattr(link, 'href') and hasattr(link, 'title'):
-                item = {
-                    "id": str(uuid.uuid4()), # Generate transient ID
-                    "href": link.href,
-                    "label": link.title,
-                    "subitems": [parse_nav_map(c) for c in children]
-                }
-                return item
-            return None
+        try:
+            book = epub.read_epub(path)
+            toc = []
+            
+            # Recursive function to parse TOC
+            def parse_nav_map(nav_point):
+                try:
+                    # Ebooklib TOC structure can be complex (tuple or Link object)
+                    # Typically: (Link, [child_links]) or Link
+                    if isinstance(nav_point, tuple) or isinstance(nav_point, list):
+                        link = nav_point[0]
+                        children = nav_point[1] if len(nav_point) > 1 else []
+                    else:
+                        link = nav_point
+                        children = []
+                        
+                    if hasattr(link, 'href') and hasattr(link, 'title'):
+                        item = {
+                            "id": str(uuid.uuid4()), # Generate transient ID
+                            "href": link.href,
+                            "label": link.title,
+                            "subitems": [parse_nav_map(c) for c in children if c is not None]
+                        }
+                        return item
+                    return None
+                except Exception as e:
+                    print(f"Error parsing nav_map item: {e}")
+                    return None
 
-        # Process book.toc
-        for item in book.toc:
-            parsed = parse_nav_map(item)
-            if parsed:
-                toc.append(parsed)
-                
-        # If TOC is empty, fallback to spine
-        if not toc:
-            for item in book.get_items():
-                if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                     toc.append({
-                         "id": item.get_id(),
-                         "href": item.get_name(),
-                         "label": item.get_name(), # Fallback label
-                         "subitems": []
-                     })
+            # Process book.toc
+            try:
+                if hasattr(book, 'toc') and book.toc:
+                    for item in book.toc:
+                        try:
+                            parsed = parse_nav_map(item)
+                            if parsed:
+                                toc.append(parsed)
+                        except Exception as e:
+                            print(f"Warning: Failed to parse TOC item: {e}")
+                            continue
+            except Exception as e:
+                print(f"Warning: Error processing TOC: {e}")
+                # Continue to fallback
+            
+            # If TOC is empty, fallback to spine
+            if not toc:
+                try:
+                    spine_items = []
+                    for item in book.get_items():
+                        try:
+                            if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                                item_name = item.get_name()
+                                item_id = item.get_id()
+                                if item_name:
+                                    spine_items.append({
+                                        "id": item_id or str(uuid.uuid4()),
+                                        "href": item_name,
+                                        "label": os.path.basename(item_name) or "Chapter", # Fallback label
+                                        "subitems": []
+                                    })
+                        except Exception as e:
+                            print(f"Warning: Failed to process spine item: {e}")
+                            continue
+                    toc = spine_items
+                except Exception as e:
+                    print(f"Warning: Error falling back to spine: {e}")
+                    # Return empty TOC if both methods fail
+                    pass
+            
+            # If still empty, try to get any document items
+            if not toc:
+                try:
+                    for item in book.get_items():
+                        try:
+                            if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                                toc.append({
+                                    "id": str(uuid.uuid4()),
+                                    "href": item.get_name() or "",
+                                    "label": "Chapter",
+                                    "subitems": []
+                                })
+                                break  # At least add one item
+                        except:
+                            continue
+                except:
+                    pass
                      
-        return toc
+            return toc
+        except Exception as e:
+            import traceback
+            error_detail = f"Failed to parse EPUB TOC: {str(e)}"
+            print(f"Error parsing TOC: {error_detail}")
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
 
     @staticmethod
     def extract_images(book_id: str) -> Dict[str, str]:

@@ -61,20 +61,55 @@ async def upload_book(file: UploadFile = File(...)):
     if not file.filename.endswith(".epub"):
         raise HTTPException(status_code=400, detail="Only EPUB files are supported")
     
-    book_id = await BookService.save_upload(file)
-    meta_info = BookService.parse_metadata(book_id)
-    toc = BookService.get_toc(book_id)
-    
-    # 添加到书架（存储相对路径，前端会自动加上服务器地址）
-    cover_url = meta_info["coverUrl"]
-    BookLibrary.add_book(book_id, meta_info["metadata"], cover_url)
-    
-    return {
-        "bookId": book_id,
-        "metadata": meta_info["metadata"],
-        "coverUrl": meta_info["coverUrl"],
-        "toc": toc
-    }
+    book_id = None
+    try:
+        book_id = await BookService.save_upload(file)
+        
+        # 解析元数据
+        try:
+            meta_info = BookService.parse_metadata(book_id)
+        except HTTPException as e:
+            # 清理已上传的文件
+            if book_id:
+                book_path = BookService.get_book_path(book_id)
+                if os.path.exists(book_path):
+                    os.remove(book_path)
+            raise e
+        
+        # 获取目录
+        try:
+            toc = BookService.get_toc(book_id)
+        except HTTPException as e:
+            # 清理已上传的文件
+            if book_id:
+                book_path = BookService.get_book_path(book_id)
+                if os.path.exists(book_path):
+                    os.remove(book_path)
+            raise e
+        
+        # 添加到书架（存储相对路径，前端会自动加上服务器地址）
+        cover_url = meta_info["coverUrl"]
+        BookLibrary.add_book(book_id, meta_info["metadata"], cover_url)
+        
+        return {
+            "bookId": book_id,
+            "metadata": meta_info["metadata"],
+            "coverUrl": meta_info["coverUrl"],
+            "toc": toc
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Unexpected error: {str(e)}"
+        print(f"Upload error: {error_detail}")
+        traceback.print_exc()
+        # 清理已上传的文件
+        if book_id:
+            book_path = BookService.get_book_path(book_id)
+            if os.path.exists(book_path):
+                os.remove(book_path)
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.get("/books")
 async def list_books():
