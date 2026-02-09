@@ -248,6 +248,40 @@ class BookService:
             # If TOC is empty, has only 1 item, or doesn't have real structure, use spine
             should_use_spine = not toc or toc_item_count <= 1 or not has_real_structure
             
+            # Helper function to extract title from HTML content
+            def extract_title_from_html(item_content: bytes) -> Optional[str]:
+                """从 HTML 内容中提取标题"""
+                try:
+                    content_str = item_content.decode('utf-8')
+                    soup = BeautifulSoup(content_str, 'html.parser')
+                    
+                    # 按优先级查找标题标签
+                    for tag_name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                        title_tag = soup.find(tag_name)
+                        if title_tag:
+                            title_text = title_tag.get_text().strip()
+                            if title_text and len(title_text) < 200:  # 标题不应该太长
+                                return title_text
+                    
+                    # 查找 class 包含 title 的元素
+                    title_elements = soup.find_all(class_=lambda x: x and 'title' in x.lower())
+                    for elem in title_elements:
+                        text = elem.get_text().strip()
+                        if text and len(text) < 200:
+                            return text
+                    
+                    # 查找第一个 strong 或 b 标签（可能是标题）
+                    strong_tag = soup.find(['strong', 'b'])
+                    if strong_tag:
+                        text = strong_tag.get_text().strip()
+                        if text and len(text) < 200:
+                            return text
+                    
+                except Exception as e:
+                    print(f"Warning: Failed to extract title from HTML: {e}")
+                
+                return None
+            
             # Always try to get spine items (even if TOC seems valid, for comparison)
             try:
                 # Try to get items from spine (reading order) - this is the most reliable method
@@ -261,21 +295,31 @@ class BookService:
                         if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
                             item_name = item.get_name()
                             if item_name:
-                                # Generate a readable label
-                                label = os.path.basename(item_name)
-                                # Remove common extensions
-                                label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
-                                # If label is empty or just numbers, use chapter number
-                                if not label or label.isdigit():
-                                    label = f"第 {chapter_num} 章"
-                                else:
-                                    # Clean up the label
-                                    label = label.replace('_', ' ').replace('-', ' ')
+                                # 尝试从 HTML 内容中提取标题
+                                label = None
+                                try:
+                                    item_content = item.get_content()
+                                    label = extract_title_from_html(item_content)
+                                except Exception as e:
+                                    print(f"Warning: Failed to get content for title extraction: {e}")
+                                
+                                # 如果无法从 HTML 提取标题，使用文件名
+                                if not label:
+                                    label = os.path.basename(item_name)
+                                    # Remove common extensions
+                                    label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
+                                    
+                                    # 如果文件名看起来像 "part007_split_000" 这样的格式，使用章节编号
+                                    if not label or label.isdigit() or ('part' in label.lower() and 'split' in label.lower()):
+                                        label = f"第 {chapter_num} 章"
+                                    else:
+                                        # Clean up the label
+                                        label = label.replace('_', ' ').replace('-', ' ')
                                 
                                 spine_items.append({
                                     "id": str(uuid.uuid4()),
                                     "href": item_name,
-                                    "label": label or f"Chapter {chapter_num}",
+                                    "label": label or f"第 {chapter_num} 章",
                                     "subitems": []
                                 })
                                 chapter_num += 1
@@ -311,15 +355,30 @@ class BookService:
                                     if any(skip in item_name.lower() for skip in ['cover', 'titlepage', 'toc', 'nav']):
                                         continue
                                     
-                                    label = os.path.basename(item_name)
-                                    label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
-                                    if not label or label.isdigit():
-                                        label = f"第 {chapter_num} 章"
+                                    # 尝试从 HTML 内容中提取标题
+                                    label = None
+                                    try:
+                                        item_content = item.get_content()
+                                        label = extract_title_from_html(item_content)
+                                    except Exception as e:
+                                        print(f"Warning: Failed to get content for title extraction: {e}")
+                                    
+                                    # 如果无法从 HTML 提取标题，使用文件名
+                                    if not label:
+                                        label = os.path.basename(item_name)
+                                        label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
+                                        
+                                        # 如果文件名看起来像 "part007_split_000" 这样的格式，使用章节编号
+                                        if not label or label.isdigit() or ('part' in label.lower() and 'split' in label.lower()):
+                                            label = f"第 {chapter_num} 章"
+                                        else:
+                                            # Clean up the label
+                                            label = label.replace('_', ' ').replace('-', ' ')
                                     
                                     all_items.append({
                                         "id": str(uuid.uuid4()),
                                         "href": item_name,
-                                        "label": label or f"Chapter {chapter_num}",
+                                        "label": label or f"第 {chapter_num} 章",
                                         "subitems": []
                                     })
                                     chapter_num += 1
