@@ -229,6 +229,8 @@ class BookService:
             # If TOC has only 1 item, it might be just the book title, not real chapters
             # Also check if TOC items have subitems (which would indicate real structure)
             has_real_structure = False
+            toc_item_count = 0
+            
             if toc:
                 # Count total items including subitems
                 def count_items(items):
@@ -238,56 +240,62 @@ class BookService:
                             count += count_items(item['subitems'])
                     return count
                 
-                total_items = count_items(toc)
+                toc_item_count = count_items(toc)
                 # If we have at least 3 items total, or if any item has subitems, consider it valid
-                has_real_structure = total_items >= 3 or any(item.get('subitems') for item in toc)
+                has_real_structure = toc_item_count >= 3 or any(item.get('subitems') for item in toc)
             
-            # If TOC is empty or doesn't have real structure, fallback to spine (reading order)
-            if not toc or not has_real_structure:
-                try:
-                    # Try to get items from spine (reading order) - this is the most reliable method
-                    spine = book.spine
-                    spine_items = []
-                    chapter_num = 1
-                    
-                    for item_id, _ in spine:
-                        try:
-                            item = book.get_item_by_id(item_id)
-                            if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
-                                item_name = item.get_name()
-                                if item_name:
-                                    # Generate a readable label
-                                    label = os.path.basename(item_name)
-                                    # Remove common extensions
-                                    label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
-                                    # If label is empty or just numbers, use chapter number
-                                    if not label or label.isdigit():
-                                        label = f"第 {chapter_num} 章"
-                                    else:
-                                        # Clean up the label
-                                        label = label.replace('_', ' ').replace('-', ' ')
-                                    
-                                    spine_items.append({
-                                        "id": str(uuid.uuid4()),
-                                        "href": item_name,
-                                        "label": label or f"Chapter {chapter_num}",
-                                        "subitems": []
-                                    })
-                                    chapter_num += 1
-                        except Exception as e:
-                            print(f"Warning: Failed to get spine item {item_id}: {e}")
-                            continue
-                    
-                    if spine_items:
-                        # Only replace TOC if spine has more items, or if TOC was empty/invalid
-                        original_toc_count = len(toc) if toc else 0
-                        if not toc or len(spine_items) > original_toc_count:
-                            toc = spine_items
-                            print(f"Using spine fallback: {len(spine_items)} chapters (replaced {original_toc_count} TOC items)")
-                        else:
-                            print(f"Keeping TOC ({original_toc_count} items), spine has {len(spine_items)} items")
-                except Exception as e:
-                    print(f"Warning: Error getting items from spine: {e}")
+            # Always try to get spine items for comparison
+            # If TOC is empty, has only 1 item, or doesn't have real structure, use spine
+            should_use_spine = not toc or toc_item_count <= 1 or not has_real_structure
+            
+            # Always try to get spine items (even if TOC seems valid, for comparison)
+            try:
+                # Try to get items from spine (reading order) - this is the most reliable method
+                spine = book.spine
+                spine_items = []
+                chapter_num = 1
+                
+                for item_id, _ in spine:
+                    try:
+                        item = book.get_item_by_id(item_id)
+                        if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
+                            item_name = item.get_name()
+                            if item_name:
+                                # Generate a readable label
+                                label = os.path.basename(item_name)
+                                # Remove common extensions
+                                label = label.replace('.html', '').replace('.xhtml', '').replace('.htm', '')
+                                # If label is empty or just numbers, use chapter number
+                                if not label or label.isdigit():
+                                    label = f"第 {chapter_num} 章"
+                                else:
+                                    # Clean up the label
+                                    label = label.replace('_', ' ').replace('-', ' ')
+                                
+                                spine_items.append({
+                                    "id": str(uuid.uuid4()),
+                                    "href": item_name,
+                                    "label": label or f"Chapter {chapter_num}",
+                                    "subitems": []
+                                })
+                                chapter_num += 1
+                    except Exception as e:
+                        print(f"Warning: Failed to get spine item {item_id}: {e}")
+                        continue
+                
+                if spine_items:
+                    # Replace TOC if:
+                    # 1. TOC is empty
+                    # 2. TOC has only 1 item (likely just book title)
+                    # 3. Spine has significantly more items
+                    original_toc_count = len(toc) if toc else 0
+                    if should_use_spine or len(spine_items) > max(original_toc_count, 2):
+                        toc = spine_items
+                        print(f"Using spine: {len(spine_items)} chapters (replaced {original_toc_count} TOC items, should_use_spine={should_use_spine})")
+                    else:
+                        print(f"Keeping TOC ({original_toc_count} items), spine has {len(spine_items)} items")
+            except Exception as e:
+                print(f"Warning: Error getting items from spine: {e}")
             
             # If still empty, try to get all document items
             if not toc:
