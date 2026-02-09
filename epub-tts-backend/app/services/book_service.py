@@ -310,6 +310,12 @@ class BookService:
                 print("WARNING: TOC is empty after all fallback attempts")
                      
             return toc
+        except Exception as e:
+            import traceback
+            error_detail = f"Failed to parse EPUB TOC: {str(e)}"
+            print(f"Error parsing TOC: {error_detail}")
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=error_detail)
     
     @staticmethod
     def get_first_available_chapter(book_id: str) -> Optional[Dict[str, Any]]:
