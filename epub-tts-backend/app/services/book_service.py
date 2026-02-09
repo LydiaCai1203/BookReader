@@ -257,7 +257,7 @@ class BookService:
                 
                 for item_id, _ in spine:
                     try:
-                        item = book.get_item_by_id(item_id)
+                        item = book.get_item_with_id(item_id)
                         if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
                             item_name = item.get_name()
                             if item_name:
@@ -362,7 +362,7 @@ class BookService:
                 spine = book.spine
                 for item_id, _ in spine:
                     try:
-                        item = book.get_item_by_id(item_id)
+                        item = book.get_item_with_id(item_id)
                         if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
                             item_name = item.get_name()
                             if item_name:
