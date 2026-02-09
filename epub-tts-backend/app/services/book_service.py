@@ -225,8 +225,25 @@ class BookService:
                 print(f"Warning: Error processing TOC: {e}")
                 # Continue to fallback
             
-            # If TOC is empty, fallback to spine (reading order)
-            if not toc:
+            # Check if TOC is valid (has multiple chapters or meaningful content)
+            # If TOC has only 1 item, it might be just the book title, not real chapters
+            # Also check if TOC items have subitems (which would indicate real structure)
+            has_real_structure = False
+            if toc:
+                # Count total items including subitems
+                def count_items(items):
+                    count = len(items)
+                    for item in items:
+                        if item.get('subitems'):
+                            count += count_items(item['subitems'])
+                    return count
+                
+                total_items = count_items(toc)
+                # If we have at least 3 items total, or if any item has subitems, consider it valid
+                has_real_structure = total_items >= 3 or any(item.get('subitems') for item in toc)
+            
+            # If TOC is empty or doesn't have real structure, fallback to spine (reading order)
+            if not toc or not has_real_structure:
                 try:
                     # Try to get items from spine (reading order) - this is the most reliable method
                     spine = book.spine
@@ -262,8 +279,13 @@ class BookService:
                             continue
                     
                     if spine_items:
-                        toc = spine_items
-                        print(f"Using spine fallback: {len(toc)} chapters")
+                        # Only replace TOC if spine has more items, or if TOC was empty/invalid
+                        original_toc_count = len(toc) if toc else 0
+                        if not toc or len(spine_items) > original_toc_count:
+                            toc = spine_items
+                            print(f"Using spine fallback: {len(spine_items)} chapters (replaced {original_toc_count} TOC items)")
+                        else:
+                            print(f"Keeping TOC ({original_toc_count} items), spine has {len(spine_items)} items")
                 except Exception as e:
                     print(f"Warning: Error getting items from spine: {e}")
             
