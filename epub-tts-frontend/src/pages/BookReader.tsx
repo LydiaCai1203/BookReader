@@ -224,11 +224,21 @@ export default function BookReader() {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  // 监听 voice 变化
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d66f05a9-12a5-4788-bac8-35940a51b987',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BookReader.tsx:226',message:'Voice changed',data:{voice,currentSentenceIndex},timestamp:Date.now(),runId:'debug',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+  }, [voice]);
+
   // 预加载音频函数
   const prefetchAudio = useCallback(async (
     startIndex: number,
     endIndex: number
   ) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d66f05a9-12a5-4788-bac8-35940a51b987',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BookReader.tsx:228',message:'prefetchAudio called',data:{startIndex,endIndex,voice},timestamp:Date.now(),runId:'debug',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (!bookId || !currentChapterHref || displayedSentences.length === 0) {
       return;
     }
@@ -354,6 +364,9 @@ export default function BookReader() {
 
   // 章节切换时重置句子索引并预加载前几个段落
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d66f05a9-12a5-4788-bac8-35940a51b987',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'BookReader.tsx:356',message:'Chapter reset useEffect triggered',data:{currentChapterHref,displayedSentencesLength:displayedSentences.length,currentSentenceIndexBefore:currentSentenceIndex,voice},timestamp:Date.now(),runId:'debug',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     setCurrentSentenceIndex(0);
     setIsPlaying(false);
     playingSentenceRef.current = -1;
@@ -366,7 +379,8 @@ export default function BookReader() {
         prefetchAudio(0, Math.min(3, displayedSentences.length));
       }, 100);
     }
-  }, [currentChapterHref, displayedSentences, prefetchAudio]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChapterHref, displayedSentences]);
 
   const togglePlay = () => {
     if (displayedSentences.length === 0) return;
