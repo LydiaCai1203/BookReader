@@ -236,6 +236,47 @@ async def get_voices(lang: str = None):
         voices = [v for v in voices if v["lang"].lower().startswith(lang.lower())]
     return voices
 
+class PrefetchRequest(BaseModel):
+    """预加载音频请求"""
+    book_id: str
+    chapter_href: str
+    sentences: List[str]
+    voice: Optional[str] = "zh-CN-XiaoxiaoNeural"
+    rate: Optional[float] = 1.0
+    pitch: Optional[float] = 1.0
+    start_index: int  # 开始索引
+    end_index: int    # 结束索引（不包含）
+
+@router.post("/tts/prefetch")
+async def prefetch_audio(request: PrefetchRequest):
+    """
+    预加载指定范围的音频到内存缓存
+    用于连续播放时提前加载相邻段落
+    """
+    try:
+        from app.services.tts_service import memory_cache
+        
+        await memory_cache.prefetch_range(
+            book_id=request.book_id,
+            chapter_href=request.chapter_href,
+            start_index=request.start_index,
+            end_index=request.end_index,
+            sentences=request.sentences,
+            voice=request.voice,
+            rate=request.rate,
+            pitch=request.pitch
+        )
+        
+        return {
+            "success": True,
+            "prefetched": request.end_index - request.start_index,
+            "cache_stats": memory_cache.get_stats()
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/tts/voices/chinese")
 async def get_chinese_voices():
     """

@@ -224,6 +224,53 @@ export default function BookReader() {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  // 预加载音频函数
+  const prefetchAudio = useCallback(async (
+    startIndex: number,
+    endIndex: number
+  ) => {
+    if (!bookId || !currentChapterHref || displayedSentences.length === 0) {
+      return;
+    }
+
+    const getEmotionParams = (e: string) => {
+      switch(e) {
+        case "warm": return { rate: 0.9 * speed, pitch: 1.05 };
+        case "excited": return { rate: 1.2 * speed, pitch: 1.2 };
+        case "serious": return { rate: 0.85 * speed, pitch: 0.8 };
+        default: return { rate: 1.0 * speed, pitch: 1.0 };
+      }
+    };
+    
+    const params = getEmotionParams(emotion);
+    const actualStart = Math.max(0, startIndex);
+    const actualEnd = Math.min(displayedSentences.length, endIndex);
+
+    if (actualStart >= actualEnd) {
+      return;
+    }
+
+    try {
+      await fetch(`${API_URL}/tts/prefetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          book_id: bookId,
+          chapter_href: currentChapterHref,
+          sentences: displayedSentences,
+          voice: voice || "zh-CN-XiaoxiaoNeural",
+          rate: params.rate,
+          pitch: params.pitch,
+          start_index: actualStart,
+          end_index: actualEnd,
+        }),
+      });
+      console.log(`[Prefetch] Loaded paragraphs ${actualStart}-${actualEnd}`);
+    } catch (error) {
+      console.warn("[Prefetch] Failed to prefetch audio:", error);
+    }
+  }, [bookId, currentChapterHref, displayedSentences, voice, speed, emotion]);
+
   // TTS Loop
   useEffect(() => {
     if (!isPlaying) {
@@ -258,6 +305,12 @@ export default function BookReader() {
     
     const params = getEmotionParams(emotion);
 
+    // 预加载相邻段落（当前段落的前一个和后两个）
+    // 总是保持3个音频在缓存中：前一个、当前、后两个
+    const prefetchStart = Math.max(0, thisSentenceIndex - 1);
+    const prefetchEnd = Math.min(displayedSentences.length, thisSentenceIndex + 3);
+    prefetchAudio(prefetchStart, prefetchEnd);
+
     ttsService.stop();
     playingSentenceRef.current = thisSentenceIndex;
     
@@ -281,6 +334,13 @@ export default function BookReader() {
       setWordTimestamps([]);
       setCurrentTime(0);
       playingSentenceRef.current = -1;
+      
+      // 播放完成后，预加载下一个段落（如果还没加载）
+      const nextIndex = thisSentenceIndex + 1;
+      if (nextIndex < displayedSentences.length) {
+        prefetchAudio(nextIndex, nextIndex + 2);
+      }
+      
       setCurrentSentenceIndex(prev => prev + 1);
     }).catch(e => {
       if (playingSentenceRef.current === thisSentenceIndex) {
@@ -290,16 +350,23 @@ export default function BookReader() {
       }
     });
 
-  }, [isPlaying, currentSentenceIndex, displayedSentences, voice, speed, emotion, bookId, currentChapterHref]);
+  }, [isPlaying, currentSentenceIndex, displayedSentences, voice, speed, emotion, bookId, currentChapterHref, prefetchAudio]);
 
-  // 章节切换时重置句子索引
+  // 章节切换时重置句子索引并预加载前几个段落
   useEffect(() => {
     setCurrentSentenceIndex(0);
     setIsPlaying(false);
     playingSentenceRef.current = -1;
     setWordTimestamps([]);
     setCurrentTime(0);
-  }, [currentChapterHref]);
+    
+    // 章节切换时，预加载前3个段落
+    if (displayedSentences.length > 0) {
+      setTimeout(() => {
+        prefetchAudio(0, Math.min(3, displayedSentences.length));
+      }, 100);
+    }
+  }, [currentChapterHref, displayedSentences, prefetchAudio]);
 
   const togglePlay = () => {
     if (displayedSentences.length === 0) return;

@@ -5,6 +5,8 @@ import os
 import re
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+import asyncio
+from collections import OrderedDict
 
 AUDIO_DIR = "data/audio"
 CACHE_INDEX_FILE = "data/audio/cache_index.json"
@@ -197,7 +199,7 @@ class TTSService:
         paragraph_index: int = None
     ) -> Dict[str, Any]:
         """
-        生成音频，优先从缓存获取
+        生成音频，优先从内存缓存获取，然后是磁盘缓存
         返回: {
             "audioUrl": str, 
             "cached": bool,
@@ -224,16 +226,27 @@ class TTSService:
             print(f"[TTS] Language mismatch: text is '{detected_lang}', voice is '{voice_lang}'. Using '{suggested_voice}' instead.")
             voice = suggested_voice
         
-        # 检查缓存（使用最终确定的 voice）
+        # 1. 优先检查内存缓存
+        if book_id and chapter_href is not None and paragraph_index is not None:
+            memory_cached = await memory_cache.get(book_id, chapter_href, paragraph_index, voice, rate, pitch)
+            if memory_cached:
+                print(f"[TTS] Memory cache hit: paragraph {paragraph_index}")
+                return memory_cached
+        
+        # 2. 检查磁盘缓存
         cache_key = AudioCache.generate_cache_key(text, voice, rate, pitch)
         cached_entry = AudioCache.get_cached_entry(cache_key)
         
         if cached_entry:
-            return {
+            result = {
                 "audioUrl": f"/audio/{cached_entry['filename']}", 
                 "cached": True,
                 "wordTimestamps": cached_entry.get('word_timestamps', [])
             }
+            # 如果有关联信息，也放入内存缓存
+            if book_id and chapter_href is not None and paragraph_index is not None:
+                await memory_cache.put(book_id, chapter_href, paragraph_index, voice, rate, pitch, result)
+            return result
         
         # 缓存未命中，生成新音频
         # Rate string format: "+50%" or "-20%"
@@ -313,11 +326,17 @@ class TTSService:
             book_id=book_id, chapter_href=chapter_href, paragraph_index=paragraph_index
         )
         
-        return {
+        result = {
             "audioUrl": f"/audio/{filename}", 
             "cached": False,
             "wordTimestamps": word_timestamps
         }
+        
+        # 如果有关联信息，也放入内存缓存
+        if book_id and chapter_href is not None and paragraph_index is not None:
+            await memory_cache.put(book_id, chapter_href, paragraph_index, voice, rate, pitch, result)
+        
+        return result
 
     @staticmethod
     async def generate_chapter_audio(
@@ -497,7 +516,7 @@ class TTSService:
                 audio_files.append(cached_map[idx]['filepath'])
             else:
                 # 生成新音频
-                cache_key = AudioCache.get_cache_key(text, voice, rate, pitch)
+                cache_key = AudioCache.generate_cache_key(text, voice, rate, pitch)
                 filename_mp3 = f"{cache_key}.mp3"
                 filepath = os.path.join(AUDIO_DIR, filename_mp3)
                 
