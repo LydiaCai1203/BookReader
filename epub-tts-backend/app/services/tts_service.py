@@ -145,6 +145,140 @@ class AudioCache:
         return count
 
 
+class AudioMemoryCache:
+    """内存音频缓存管理器 - 维护3个音频的缓存窗口"""
+    
+    def __init__(self, max_size: int = 3):
+        self.max_size = max_size
+        # 使用 OrderedDict 实现 LRU 缓存
+        # key: (book_id, chapter_href, paragraph_index, voice, rate, pitch)
+        # value: {"audioUrl": str, "wordTimestamps": List, "cached": bool}
+        self.cache: OrderedDict = OrderedDict()
+        self.lock = asyncio.Lock()
+    
+    def _make_key(self, book_id: str, chapter_href: str, paragraph_index: int, 
+                  voice: str, rate: float, pitch: float) -> tuple:
+        """生成缓存键"""
+        return (book_id, chapter_href, paragraph_index, voice, rate, pitch)
+    
+    async def get(self, book_id: str, chapter_href: str, paragraph_index: int,
+                  voice: str, rate: float, pitch: float) -> Optional[Dict]:
+        """从内存缓存获取音频"""
+        async with self.lock:
+            key = self._make_key(book_id, chapter_href, paragraph_index, voice, rate, pitch)
+            if key in self.cache:
+                # 移动到末尾（最近使用）
+                self.cache.move_to_end(key)
+                return self.cache[key]
+            return None
+    
+    async def put(self, book_id: str, chapter_href: str, paragraph_index: int,
+                  voice: str, rate: float, pitch: float, audio_data: Dict):
+        """将音频放入内存缓存"""
+        async with self.lock:
+            key = self._make_key(book_id, chapter_href, paragraph_index, voice, rate, pitch)
+            
+            # 如果已存在，更新并移动到末尾
+            if key in self.cache:
+                self.cache[key] = audio_data
+                self.cache.move_to_end(key)
+            else:
+                # 如果缓存已满，删除最旧的
+                if len(self.cache) >= self.max_size:
+                    self.cache.popitem(last=False)  # 删除最旧的（第一个）
+                
+                self.cache[key] = audio_data
+    
+    async def prefetch_range(self, book_id: str, chapter_href: str, 
+                            start_index: int, end_index: int,
+                            sentences: List[str], voice: str, rate: float, pitch: float):
+        """预加载指定范围的音频到内存缓存"""
+        tasks = []
+        for idx in range(start_index, min(end_index, len(sentences))):
+            # 检查是否已在缓存中
+            cached = await self.get(book_id, chapter_href, idx, voice, rate, pitch)
+            if cached:
+                continue  # 已缓存，跳过
+            
+            # 检查磁盘缓存
+            text = sentences[idx]
+            cache_key = AudioCache.generate_cache_key(text, voice, rate, pitch)
+            disk_cached = AudioCache.get_cached_entry(cache_key)
+            
+            if disk_cached:
+                # 从磁盘缓存加载到内存
+                audio_data = {
+                    "audioUrl": f"/audio/{disk_cached['filename']}",
+                    "cached": True,
+                    "wordTimestamps": disk_cached.get('word_timestamps', [])
+                }
+                await self.put(book_id, chapter_href, idx, voice, rate, pitch, audio_data)
+            else:
+                # 需要生成新音频
+                tasks.append((idx, text))
+        
+        # 批量生成缺失的音频
+        if tasks:
+            async def generate_and_cache(idx: int, text: str):
+                try:
+                    # 直接生成音频，不通过 generate_audio（避免循环）
+                    cache_key = AudioCache.generate_cache_key(text, voice, rate, pitch)
+                    filename = f"{cache_key}.mp3"
+                    filepath = os.path.join(AUDIO_DIR, filename)
+                    
+                    # Rate & Pitch 格式化
+                    rate_pct = int((rate - 1.0) * 100)
+                    rate_str = f"{rate_pct:+d}%"
+                    pitch_hz = int((pitch - 1.0) * 50)
+                    pitch_str = f"{pitch_hz:+d}Hz"
+                    
+                    # 生成音频
+                    communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
+                    await communicate.save(filepath)
+                    
+                    # 保存到磁盘缓存
+                    AudioCache.save_to_cache(
+                        cache_key, filename, text, voice, rate, pitch, [],
+                        book_id=book_id, chapter_href=chapter_href, paragraph_index=idx
+                    )
+                    
+                    # 放入内存缓存
+                    result = {
+                        "audioUrl": f"/audio/{filename}",
+                        "cached": False,
+                        "wordTimestamps": []
+                    }
+                    await self.put(book_id, chapter_href, idx, voice, rate, pitch, result)
+                except Exception as e:
+                    print(f"[MemoryCache] Failed to prefetch paragraph {idx}: {e}")
+            
+            # 并发生成（限制并发数避免过载）
+            semaphore = asyncio.Semaphore(3)  # 最多3个并发
+            
+            async def limited_generate(idx, text):
+                async with semaphore:
+                    await generate_and_cache(idx, text)
+            
+            await asyncio.gather(*[limited_generate(idx, text) for idx, text in tasks])
+    
+    async def clear(self):
+        """清空内存缓存"""
+        async with self.lock:
+            self.cache.clear()
+    
+    def get_stats(self) -> Dict:
+        """获取缓存统计"""
+        return {
+            "size": len(self.cache),
+            "max_size": self.max_size,
+            "keys": list(self.cache.keys())
+        }
+
+
+# 全局内存缓存实例
+memory_cache = AudioMemoryCache(max_size=3)
+
+
 class TTSService:
     # 默认语音映射
     DEFAULT_VOICES = {
