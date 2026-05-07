@@ -380,6 +380,23 @@ async def delete_book(
             else:
                 logger.warning(f"[DeleteBook] Directory not found: {book_dir}")
 
+            # 按外键依赖顺序清理关联表，避免 ForeignKeyViolation
+            from shared.models.concept import ConceptEvidence, ConceptOccurrence, Concept
+            from shared.models.index import IndexedParagraph, IndexedBook
+
+            # concept_evidence / concept_occurrences → 引用 concepts.id 和 indexed_paragraphs.id
+            db.query(ConceptEvidence).filter(ConceptEvidence.book_id == book_id).delete()
+            db.query(ConceptOccurrence).filter(ConceptOccurrence.book_id == book_id).delete()
+            # concepts → 引用 books.id（先处理自引用 parent_concept_id）
+            db.query(Concept).filter(Concept.book_id == book_id).update(
+                {Concept.parent_concept_id: None}, synchronize_session=False
+            )
+            db.query(Concept).filter(Concept.book_id == book_id).delete()
+            # indexed_paragraphs → 引用 books.id
+            db.query(IndexedParagraph).filter(IndexedParagraph.book_id == book_id).delete()
+            # indexed_books → 引用 books.id
+            db.query(IndexedBook).filter(IndexedBook.book_id == book_id).delete()
+
             db.delete(book_row)
             db.commit()
             logger.info(f"[DeleteBook] Successfully deleted book: book_id={book_id}, title='{book_row.title}'")
