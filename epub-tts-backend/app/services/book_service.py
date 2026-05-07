@@ -671,7 +671,9 @@ class BookService:
             all_block_tags = heading_tags | leaf_block_tags | container_tags
 
             def collect_blocks(element):
-                """Walk DOM tree, collect each block-level element as one text block."""
+                """Walk DOM tree, collect each block-level element as one text block.
+                Images are collected as special markers: __IMG__:src_url
+                """
                 blocks = []
                 if element is None:
                     return blocks
@@ -685,6 +687,13 @@ class BookService:
 
                 tag = element.name
 
+                # Collect <img> as image marker
+                if tag == 'img':
+                    src = element.get('src', '')
+                    if src:
+                        blocks.append(f"__IMG__:{src}")
+                    return blocks
+
                 # If this block element has block-level children, recurse into them
                 has_block_children = any(
                     hasattr(c, 'name') and c.name in all_block_tags
@@ -692,7 +701,12 @@ class BookService:
                 )
 
                 if tag in (heading_tags | leaf_block_tags) and not has_block_children:
-                    # Leaf block: collect as single text block
+                    # Leaf block: check for inline images first
+                    for img in element.find_all('img'):
+                        src = img.get('src', '')
+                        if src:
+                            blocks.append(f"__IMG__:{src}")
+                    # Collect text
                     text = ' '.join(element.get_text(separator=' ').split())
                     if text:
                         blocks.append(text)
@@ -718,13 +732,17 @@ class BookService:
                 for child in body.children:
                     blocks.extend(collect_blocks(child))
 
-        text = '\n\n'.join(blocks)
+        text = '\n\n'.join(b for b in blocks if not b.startswith('__IMG__:'))
 
         MAX_PARAGRAPH_LENGTH = 300
 
         sentences = []
         for block in blocks:
             if not block:
+                continue
+            # Image markers pass through directly
+            if block.startswith('__IMG__:'):
+                sentences.append(block)
                 continue
             if len(block) <= MAX_PARAGRAPH_LENGTH:
                 sentences.append(block)

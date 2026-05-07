@@ -3,6 +3,7 @@
 Handles both modern (Next.js SPA) and legacy (static HTML) GitBook sites.
 Limits to 500 pages max to prevent abuse.
 """
+import asyncio
 import hashlib
 import os
 import re
@@ -66,41 +67,68 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                 )
                 toc_links = toc_links[:MAX_PAGES]
 
-            # Fetch all pages and download images
+            # Fetch all pages and download images (concurrently, limited)
             chapters = []
             all_images: list[epub.EpubImage] = []
             seen_images: dict[str, str] = {}  # url -> epub internal path
 
             total_pages = len(toc_links)
-            for i, link in enumerate(toc_links):
-                page_url = link["url"]
-                page_title = link["title"]
-                logger.info(
-                    f"[GitBook] Fetching page {i + 1}/{total_pages}: {page_title}"
+            CONCURRENCY = 5
+            semaphore = asyncio.Semaphore(CONCURRENCY)
+
+            async def fetch_page(i: int, link: dict) -> dict | None:
+                async with semaphore:
+                    page_url = link["url"]
+                    page_title = link["title"]
+                    logger.info(
+                        f"[GitBook] Fetching page {i + 1}/{total_pages}: {page_title}"
+                    )
+                    try:
+                        page_resp = await client.get(page_url)
+                        page_resp.raise_for_status()
+                        page_html = page_resp.text
+                        content = _extract_page_content(page_html)
+                        if content.strip():
+                            return {
+                                "index": i,
+                                "title": page_title,
+                                "content": content,
+                                "source_url": page_url,
+                            }
+                    except Exception as e:
+                        logger.warning(f"[GitBook] Failed to fetch {page_url}: {e}")
+                    return None
+
+            tasks = [fetch_page(i, link) for i, link in enumerate(toc_links)]
+            results = await asyncio.gather(*tasks)
+
+            # Sort by original order and filter None
+            fetched = sorted(
+                [r for r in results if r is not None],
+                key=lambda x: x["index"],
+            )
+
+            if on_progress:
+                on_progress(current=total_pages, total=total_pages, title=site_title)
+
+            # Process images for fetched pages (concurrently)
+            async def process_page_images(page: dict) -> dict:
+                content, page_images = await _process_images(
+                    page["content"], client, page["source_url"], seen_images
                 )
+                page["content"] = content
+                return page, page_images
 
-                if on_progress:
-                    on_progress(current=i + 1, total=total_pages, title=site_title)
+            img_tasks = [process_page_images(page) for page in fetched]
+            img_results = await asyncio.gather(*img_tasks)
 
-                try:
-                    page_resp = await client.get(page_url)
-                    page_resp.raise_for_status()
-                    page_html = page_resp.text
-                    content = _extract_page_content(page_html)
-                    if content.strip():
-                        # Download and embed images
-                        content, page_images = await _process_images(
-                            content, client, page_url, seen_images
-                        )
-                        all_images.extend(page_images)
-                        chapters.append({
-                            "title": page_title,
-                            "content": content,
-                            "source_url": page_url,
-                        })
-                except Exception as e:
-                    logger.warning(f"[GitBook] Failed to fetch {page_url}: {e}")
-                    continue
+            for page, page_images in img_results:
+                chapters.append({
+                    "title": page["title"],
+                    "content": page["content"],
+                    "source_url": page["source_url"],
+                })
+                all_images.extend(page_images)
 
             if not chapters:
                 raise GitBookImportError("No content could be extracted from the GitBook")
@@ -190,11 +218,21 @@ def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
     parsed_base = urlparse(base_url)
     base_domain = parsed_base.netloc
 
-    # Strategy 1: Look for nav/sidebar elements common in GitBook
+    # Strategy 1: MkDocs / ReadTheDocs — nested nav with sections
+    mkdocs_sidebar = soup.find("div", class_=re.compile(r"md-sidebar--primary", re.I))
+    if mkdocs_sidebar:
+        nav_el = mkdocs_sidebar.find("nav")
+        if nav_el:
+            links = _extract_mkdocs_toc(nav_el, base_url, base_domain)
+            if links:
+                return links
+
+    # Strategy 2: Look for nav/sidebar elements common in GitBook
     nav_selectors = [
-        soup.find("nav"),
+        soup.find("nav", class_=re.compile(r"sidebar|toc|table-of-contents", re.I)),
         soup.find(attrs={"role": "navigation"}),
-        soup.find(class_=re.compile(r"sidebar|side-bar|navigation|nav|toc|table-of-contents", re.I)),
+        soup.find(class_=re.compile(r"sidebar|side-bar|table-of-contents", re.I)),
+        soup.find("nav"),
         soup.find(attrs={"data-testid": re.compile(r"sidebar|navigation|toc", re.I)}),
     ]
 
@@ -203,10 +241,13 @@ def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
             continue
         for a in nav_el.find_all("a", href=True):
             href = a["href"]
+            # Skip anchor-only links
+            if href.startswith("#"):
+                continue
             full_url = urljoin(base_url, href)
             parsed = urlparse(full_url)
 
-            # Only same-domain links, skip anchors and external
+            # Only same-domain links, skip external
             if parsed.netloc != base_domain:
                 continue
             # Normalize: remove fragment
@@ -224,7 +265,7 @@ def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
         if links:
             break  # Use first nav element that yields results
 
-    # Strategy 2: Look for __NEXT_DATA__ (modern GitBook)
+    # Strategy 3: Look for __NEXT_DATA__ (modern GitBook)
     if not links:
         script_tag = soup.find("script", id="__NEXT_DATA__")
         if script_tag:
@@ -238,6 +279,59 @@ def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
             except (json.JSONDecodeError, KeyError):
                 pass
 
+    return links
+
+
+def _extract_mkdocs_toc(nav_el, base_url: str, base_domain: str) -> list[dict]:
+    """Extract TOC from MkDocs nested nav structure, preserving hierarchy in titles."""
+    links = []
+    seen_urls = set()
+
+    def _walk_items(parent_el, prefix: str = ""):
+        """Recursively walk nav items, building section-prefixed titles."""
+        # Find immediate <ul> inside this element
+        ul = parent_el.find("ul", recursive=False)
+        if not ul:
+            # Also try finding inside a nested <nav>
+            inner_nav = parent_el.find("nav", recursive=False)
+            if inner_nav:
+                ul = inner_nav.find("ul", recursive=False)
+        if not ul:
+            return
+
+        for li in ul.find_all("li", recursive=False):
+            # Check if this is a section header (label) or a link (a)
+            label = li.find("label", recursive=False)
+            a_tag = li.find("a", recursive=False)
+
+            section_name = ""
+            if label:
+                section_name = label.get_text().strip()
+
+            # If there's a link (even alongside a label), add it
+            if a_tag:
+                href = a_tag.get("href", "")
+                title = a_tag.get_text().strip()
+                if title and not href.startswith("#"):
+                    full_url = urljoin(base_url, href)
+                    parsed = urlparse(full_url)
+                    if parsed.netloc == base_domain:
+                        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                        if clean_url not in seen_urls:
+                            seen_urls.add(clean_url)
+                            display_title = f"{prefix}{title}" if prefix else title
+                            links.append({"title": display_title, "url": clean_url})
+
+            # Recurse into sub-navigation
+            sub_nav = li.find("nav", recursive=False)
+            if sub_nav:
+                child_prefix = f"{prefix}{section_name} > " if section_name else prefix
+                _walk_items(sub_nav, child_prefix)
+            elif li.find("ul", recursive=False):
+                child_prefix = f"{prefix}{section_name} > " if section_name else prefix
+                _walk_items(li, child_prefix)
+
+    _walk_items(nav_el)
     return links
 
 
@@ -273,12 +367,13 @@ def _extract_page_content(html: str) -> str:
     for tag in soup.find_all(["script", "style", "nav", "header", "footer", "noscript"]):
         tag.decompose()
 
-    # Try to find the main content area
+    # Try to find the main content area — prefer the most specific element
     content_selectors = [
+        soup.find("article"),
+        soup.find(class_=re.compile(r"markdown-body|md-typeset|page-body|page-content|main-content", re.I)),
         soup.find("main"),
         soup.find(attrs={"role": "main"}),
-        soup.find(class_=re.compile(r"page-body|page-content|content|markdown-body|main-content", re.I)),
-        soup.find("article"),
+        soup.find(class_=re.compile(r"content", re.I)),
     ]
 
     content_el = None
@@ -300,7 +395,26 @@ def _extract_page_content(html: str) -> str:
     ):
         sidebar.decompose()
 
-    return str(content_el)
+    # Remove MkDocs / ReadTheDocs / GitBook decorative elements
+    # 1. GitHub edit buttons, source links
+    for el in content_el.find_all(
+        "a", class_=re.compile(r"md-content__button|md-icon|edit-page|headerlink", re.I)
+    ):
+        el.decompose()
+    # 2. Standalone SVG elements (icons)
+    for svg in content_el.find_all("svg"):
+        svg.decompose()
+    # 3. "Permanent link" ¶ anchors (headerlink class)
+    for el in content_el.find_all("a", class_="headerlink"):
+        el.decompose()
+    # 4. GitBook hint/callout close buttons, action buttons
+    for el in content_el.find_all(
+        class_=re.compile(r"gitbook-drawing|copy-button|clipboard", re.I)
+    ):
+        el.decompose()
+
+    # Return the inner HTML (children), stripping the outer wrapper tag itself
+    return content_el.decode_contents()
 
 
 def _build_epub(
@@ -385,13 +499,17 @@ def _build_epub(
         )
 
         clean_content = content_soup.decode_contents()
+
+        # Only add <h1> if content doesn't already have one
+        has_h1 = content_soup.find("h1") is not None
+        title_heading = "" if has_h1 else f"<h1>{ch['title']}</h1>\n"
+
         epub_ch.content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>{ch['title']}</title></head>
 <body>
-<h1>{ch['title']}</h1>
-{clean_content}
+{title_heading}{clean_content}
 </body>
 </html>""".encode("utf-8")
 

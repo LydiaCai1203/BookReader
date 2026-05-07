@@ -522,6 +522,15 @@ export function Reader({
     return htmlContent.replace(/src="\/images\//g, `src="${API_BASE}/images/`);
   }, [htmlContent]);
 
+  // Helper: check if a sentence is an image marker from backend
+  const isImageMarker = (text: string) => text.startsWith("__IMG__:");
+  const getImageUrl = (text: string) => {
+    const src = text.slice("__IMG__:".length);
+    if (src.startsWith("/images/")) return `${API_BASE}${src}`;
+    if (src.startsWith("http")) return src;
+    return `${API_BASE}${src}`;
+  };
+
 
   // Scroll to highlight from notes panel
   useEffect(() => {
@@ -877,6 +886,15 @@ export function Reader({
               onPointerUp={canAnnotate ? handlePointerUp : undefined}
             >
               {sentences.map((text, index) => {
+                // Image markers span both columns
+                if (isImageMarker(text)) {
+                  return (
+                    <div key={index} className="col-span-full flex justify-center my-4">
+                      <img src={getImageUrl(text)} className="rounded-lg shadow-lg max-w-full max-h-[60vh] object-contain" loading="lazy" />
+                    </div>
+                  );
+                }
+
                 const isActive = index === current;
                 const isSentenceActive = isActive && isPlayMode;
                 const isPast = index < current;
@@ -954,6 +972,15 @@ export function Reader({
               onPointerUp={canAnnotate ? handlePointerUp : undefined}
             >
               {displayedSentences.map((text, index) => {
+                // Image markers render as images
+                if (isImageMarker(text)) {
+                  return (
+                    <div key={index} id={`sentence-${index}`} className="flex justify-center my-4">
+                      <img src={getImageUrl(text)} className="rounded-lg shadow-lg max-w-full max-h-[60vh] object-contain" loading="lazy" />
+                    </div>
+                  );
+                }
+
                 const isActive = index === current;
                 const isSentenceActive = isActive && isPlayMode;
                 const isPast = index < current;

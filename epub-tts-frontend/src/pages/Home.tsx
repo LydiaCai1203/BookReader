@@ -94,6 +94,16 @@ export default function Home() {
     totalPages?: number;
     title?: string;
   } | null>(null);
+  const gitbookPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 清理 GitBook 轮询（组件卸载时）
+  useEffect(() => {
+    return () => {
+      if (gitbookPollRef.current) {
+        clearInterval(gitbookPollRef.current);
+      }
+    };
+  }, []);
 
   // 加载书架
   useEffect(() => {
@@ -310,6 +320,7 @@ export default function Home() {
             });
           } else if (status.status === "completed") {
             clearInterval(poll);
+            gitbookPollRef.current = null;
             setGitbookImporting(false);
             setGitbookProgress(null);
             setShowGitBookDialog(false);
@@ -321,17 +332,20 @@ export default function Home() {
             loadBooks();
           } else if (status.status === "failed") {
             clearInterval(poll);
+            gitbookPollRef.current = null;
             setGitbookImporting(false);
             setGitbookProgress(null);
             toast.error(status.error || "导入失败");
           }
         } catch {
           clearInterval(poll);
+          gitbookPollRef.current = null;
           setGitbookImporting(false);
           setGitbookProgress(null);
           toast.error("获取导入状态失败");
         }
       }, 2000);
+      gitbookPollRef.current = poll;
     } catch (e: any) {
       toast.error(e.message || "导入失败");
       setGitbookImporting(false);
