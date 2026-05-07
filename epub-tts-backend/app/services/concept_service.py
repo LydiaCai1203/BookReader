@@ -14,6 +14,7 @@ import uuid
 
 import httpx
 from loguru import logger
+from sqlalchemy import union_all
 from sqlalchemy.exc import IntegrityError
 
 from shared.config import settings
@@ -436,6 +437,57 @@ class ConceptService:
             )
             if not concept_ids:
                 return []
+
+            # --- 遗忘曲线过滤: 查询每个概念在全书的章节分布 ---
+            ev_q = (
+                db.query(
+                    ConceptEvidence.concept_id.label("concept_id"),
+                    ConceptEvidence.chapter_idx.label("chapter_idx"),
+                )
+                .filter(
+                    ConceptEvidence.book_id == book_id,
+                    ConceptEvidence.user_id == user_id,
+                    ConceptEvidence.concept_id.in_(concept_ids),
+                )
+            )
+            occ_q = (
+                db.query(
+                    ConceptOccurrence.concept_id.label("concept_id"),
+                    ConceptOccurrence.chapter_idx.label("chapter_idx"),
+                )
+                .filter(
+                    ConceptOccurrence.book_id == book_id,
+                    ConceptOccurrence.user_id == user_id,
+                    ConceptOccurrence.concept_id.in_(concept_ids),
+                )
+            )
+            combined = union_all(ev_q, occ_q).subquery()
+            chapter_dist_rows = (
+                db.query(combined.c.concept_id, combined.c.chapter_idx)
+                .distinct()
+                .all()
+            )
+            # 按 concept_id 聚合所有出现章节
+            chapters_by_concept: dict[str, list[int]] = {}
+            for row in chapter_dist_rows:
+                chapters_by_concept.setdefault(row.concept_id, []).append(row.chapter_idx)
+            for cid in chapters_by_concept:
+                chapters_by_concept[cid].sort()
+
+            # 计算每个概念应展示角标的章节集合，过滤掉当前章不在集合内的概念
+            badge_concept_ids = set()
+            for cid, chs in chapters_by_concept.items():
+                badge_chs = cls._compute_badge_chapters(chs)
+                if chapter_idx in badge_chs:
+                    badge_concept_ids.add(cid)
+
+            # 过滤: 只保留当前章应展示角标的概念
+            concept_ids = concept_ids & badge_concept_ids
+            if not concept_ids:
+                return []
+            chapter_evs = [ev for ev in chapter_evs if ev.concept_id in concept_ids]
+            chapter_occs = [o for o in chapter_occs if o.concept_id in concept_ids]
+
             concepts = (
                 db.query(Concept)
                 .filter(Concept.id.in_(concept_ids))
@@ -556,6 +608,27 @@ class ConceptService:
     # ===================================================================
     # 内部工具
     # ===================================================================
+
+    @staticmethod
+    def _compute_badge_chapters(all_chapters: list[int]) -> set[int]:
+        """给定概念出现的所有章节（已排序），返回应显示角标的章节集合。
+
+        首次出现必标，之后按 Fibonacci 递增间隔（3, 5, 8, 13, 21, 34）
+        决定下一次展示的最小间隔。
+        """
+        if not all_chapters:
+            return set()
+        badge_chapters = {all_chapters[0]}  # 首次出现必标
+        intervals = [3, 5, 8, 13, 21, 34]
+        last_badge = all_chapters[0]
+        interval_idx = 0
+        for ch in all_chapters[1:]:
+            gap = intervals[min(interval_idx, len(intervals) - 1)]
+            if ch - last_badge >= gap:
+                badge_chapters.add(ch)
+                last_badge = ch
+                interval_idx += 1
+        return badge_chapters
 
     @classmethod
     def _set_status(cls, book_id, user_id, status, error=None):

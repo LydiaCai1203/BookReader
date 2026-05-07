@@ -61,19 +61,40 @@ class BookService:
         return settings.get_book_path(user_id, book_id)
 
     @staticmethod
-    async def save_upload(file: UploadFile, user_id: str) -> tuple[str, str]:
-        """Save uploaded EPUB file.
-        Returns (book_id, file_path).
+    async def save_upload(file: UploadFile, user_id: str) -> tuple[str, str, str]:
+        """Save uploaded ebook file (EPUB or MOBI).
+
+        For MOBI files, converts to EPUB using Calibre's ebook-convert.
+        Returns (book_id, epub_file_path, source_type).
         """
         book_id = str(uuid.uuid4())
         book_dir = settings.get_user_book_dir(user_id, book_id)
         os.makedirs(book_dir, exist_ok=True)
 
-        file_path = settings.get_book_path(user_id, book_id)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        filename = (file.filename or "").lower()
+        is_mobi = filename.endswith(".mobi")
+        source_type = "mobi" if is_mobi else "epub"
 
-        return book_id, file_path
+        epub_path = settings.get_book_path(user_id, book_id)  # always book.epub
+
+        if is_mobi:
+            # Save the original MOBI, convert, then clean up
+            mobi_path = os.path.join(book_dir, "book.mobi")
+            with open(mobi_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            from app.services.format_converter import convert_mobi_to_epub
+            try:
+                await convert_mobi_to_epub(mobi_path, epub_path)
+            finally:
+                # Remove the original MOBI regardless of success
+                if os.path.exists(mobi_path):
+                    os.remove(mobi_path)
+        else:
+            with open(epub_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+        return book_id, epub_path, source_type
 
     @staticmethod
     def parse_metadata(book_id: str, user_id: str) -> Dict[str, Any]:

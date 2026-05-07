@@ -1,6 +1,6 @@
 import os
 import shutil
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import func, case
 from loguru import logger
@@ -16,6 +16,11 @@ from typing import Optional
 class VisibilityRequest(BaseModel):
     is_public: bool
 
+
+class GitBookImportRequest(BaseModel):
+    url: str
+
+
 router = APIRouter(prefix="/books", tags=["books"])
 
 @router.post("")
@@ -25,12 +30,13 @@ async def upload_book(
 ):
     if is_guest_user(user_id):
         raise HTTPException(status_code=403, detail="游客账号不允许上传书籍")
-    if not file.filename.endswith(".epub"):
-        raise HTTPException(status_code=400, detail="Only EPUB files are supported")
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".epub") and not filename.endswith(".mobi"):
+        raise HTTPException(status_code=400, detail="Only EPUB and MOBI files are supported")
 
     book_id = None
     try:
-        book_id, file_path = await BookService.save_upload(file, user_id)
+        book_id, file_path, source_type = await BookService.save_upload(file, user_id)
 
         try:
             meta_info = BookService.parse_metadata(book_id, user_id)
@@ -62,6 +68,7 @@ async def upload_book(
                     cover_url=cover_url,
                     file_path=file_path,
                     is_public=False,
+                    source_type=source_type,
                 )
                 db.add(book)
                 db.commit()
@@ -87,6 +94,73 @@ async def upload_book(
             if os.path.isdir(book_dir):
                 shutil.rmtree(book_dir)
         raise HTTPException(status_code=500, detail=error_detail)
+
+# ---- In-memory store for GitBook import status ----
+_gitbook_import_status: dict[str, dict] = {}
+
+
+@router.post("/import/gitbook")
+async def import_gitbook_endpoint(
+    data: GitBookImportRequest,
+    background: BackgroundTasks,
+    user_id: str = Depends(get_current_user),
+):
+    """Start a GitBook import as a background task. Returns a task_id for polling."""
+    if is_guest_user(user_id):
+        raise HTTPException(status_code=403, detail="游客账号不允许导入书籍")
+
+    url = data.url.strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="请输入有效的 URL（以 http:// 或 https:// 开头）")
+
+    import uuid as _uuid
+    task_id = str(_uuid.uuid4())
+    _gitbook_import_status[task_id] = {"status": "importing", "url": url}
+
+    background.add_task(_import_gitbook_bg, task_id=task_id, url=url, user_id=user_id)
+
+    return {"taskId": task_id, "status": "importing"}
+
+
+@router.get("/import/gitbook/{task_id}")
+async def get_gitbook_import_status(
+    task_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Poll GitBook import status."""
+    status = _gitbook_import_status.get(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Import task not found")
+    return status
+
+
+def _import_gitbook_bg(task_id: str, url: str, user_id: str):
+    """Background task for GitBook import."""
+    import asyncio
+    from app.services.gitbook_service import import_gitbook, GitBookImportError
+
+    try:
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(import_gitbook(url, user_id))
+        loop.close()
+        _gitbook_import_status[task_id] = {
+            "status": "completed",
+            "bookId": result["bookId"],
+            "title": result["title"],
+            "totalPages": result["totalPages"],
+        }
+    except GitBookImportError as e:
+        _gitbook_import_status[task_id] = {
+            "status": "failed",
+            "error": str(e),
+        }
+    except Exception as e:
+        logger.exception(f"[GitBook] Background import failed: {e}")
+        _gitbook_import_status[task_id] = {
+            "status": "failed",
+            "error": f"导入失败: {str(e)}",
+        }
+
 
 @router.get("")
 async def list_books(user_id: Optional[str] = Depends(get_optional_user)):

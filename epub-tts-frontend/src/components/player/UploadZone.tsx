@@ -25,10 +25,10 @@ export function UploadZone({ onFileSelect }: UploadZoneProps) {
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
-      if (file.name.endsWith(".epub")) {
+      if (file.name.endsWith(".epub") || file.name.endsWith(".mobi")) {
         onFileSelect(file);
       } else {
-        alert("请上传 EPUB 格式的文件");
+        alert("请上传 EPUB 或 MOBI 格式的文件");
       }
     }
   }, [onFileSelect]);
@@ -69,10 +69,10 @@ export function UploadZone({ onFileSelect }: UploadZoneProps) {
           </div>
           <div className="text-center">
             <h3 className="text-xl font-bold font-display text-foreground group-hover:text-primary transition-colors">
-              上传 EPUB 文件
+              上传电子书
             </h3>
             <p className="text-sm text-muted-foreground font-mono mt-1">
-              拖拽文件到这里，或点击选择
+              支持 EPUB、MOBI 格式，拖拽或点击选择
             </p>
           </div>
         </div>
@@ -80,7 +80,7 @@ export function UploadZone({ onFileSelect }: UploadZoneProps) {
         <input
           id="file-upload"
           type="file"
-          accept=".epub"
+          accept=".epub,.mobi"
           className="hidden"
           onChange={handleInput}
         />

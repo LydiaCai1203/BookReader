@@ -3,11 +3,12 @@ import { useLocation } from "wouter";
 import { UploadZone } from "@/components/player/UploadZone";
 import { useUploadBook } from "@/hooks/use-book";
 import { Button } from "@/components/ui/button";
-import { Loader2, Book, Trash2, BrainCircuit, Github, User, LogOut, BarChart2, AudioLines, Languages, Mic, Globe, Lock, DatabaseZap, Check, AlertTriangle, KeyRound } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, Book, Trash2, BrainCircuit, Github, User, LogOut, BarChart2, AudioLines, Languages, Mic, Globe, Lock, DatabaseZap, Check, AlertTriangle, KeyRound, LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE, API_URL } from "@/config";
 import { useAuth } from "@/contexts/AuthContext";
-import { indexService, conceptService, type IndexStatus, type ConceptStatus } from "@/api/services";
+import { indexService, conceptService, BookService, type IndexStatus, type ConceptStatus } from "@/api/services";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
@@ -22,6 +23,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,6 +85,10 @@ export default function Home() {
   const [conceptStatuses, setConceptStatuses] = useState<Record<string, ConceptStatus>>({});
   // 等待用户确认取消提取的 bookId
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
+  // GitBook 导入
+  const [showGitBookDialog, setShowGitBookDialog] = useState(false);
+  const [gitbookUrl, setGitbookUrl] = useState("");
+  const [gitbookImporting, setGitbookImporting] = useState(false);
 
   // 加载书架
   useEffect(() => {
@@ -272,6 +285,43 @@ export default function Home() {
     navigate(`/book/${bookId}`);
   };
 
+  const handleGitBookImport = async () => {
+    if (!token || !gitbookUrl.trim()) return;
+    setGitbookImporting(true);
+    const svc = new BookService();
+    try {
+      const { taskId } = await svc.importGitBook(gitbookUrl.trim());
+      setShowGitBookDialog(false);
+      setGitbookUrl("");
+      toast.info("GitBook 导入已启动，请稍候...");
+
+      // Poll for completion
+      const poll = setInterval(async () => {
+        try {
+          const status = await svc.getGitBookImportStatus(taskId);
+          if (status.status === "completed") {
+            clearInterval(poll);
+            toast.success(`导入完成: ${status.title} (${status.totalPages} 页)`);
+            if (status.bookId) {
+              navigate(`/book/${status.bookId}`);
+            }
+            loadBooks();
+          } else if (status.status === "failed") {
+            clearInterval(poll);
+            toast.error(status.error || "导入失败");
+          }
+        } catch {
+          clearInterval(poll);
+          toast.error("获取导入状态失败");
+        }
+      }, 3000);
+    } catch (e: any) {
+      toast.error(e.message || "导入失败");
+    } finally {
+      setGitbookImporting(false);
+    }
+  };
+
   const handleToggleVisibility = async (bookId: string, currentPublic: boolean) => {
     if (!token) return;
     try {
@@ -404,6 +454,17 @@ export default function Home() {
             {/* Upload Section */}
             <section className="mb-12">
               <UploadZone onFileSelect={handleFileSelect} />
+              <div className="flex justify-center mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setShowGitBookDialog(true)}
+                >
+                  <LinkIcon className="w-4 h-4" />
+                  导入 GitBook
+                </Button>
+              </div>
             </section>
           </>
         ) : (
@@ -724,8 +785,8 @@ export default function Home() {
       </AlertDialog>
 
       {/* Auth Dialogs */}
-      <LoginForm 
-        open={showLogin} 
+      <LoginForm
+        open={showLogin}
         onOpenChange={setShowLogin}
         onSwitchToRegister={() => {
           setShowLogin(false);
@@ -741,6 +802,50 @@ export default function Home() {
         }}
       />
       <ChangePasswordDialog open={showChangePwd} onOpenChange={setShowChangePwd} />
+
+      {/* GitBook Import Dialog */}
+      <Dialog open={showGitBookDialog} onOpenChange={setShowGitBookDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>导入 GitBook</DialogTitle>
+            <DialogDescription>
+              输入 GitBook 网站 URL，系统将自动抓取内容并转换为电子书
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="https://docs.example.com"
+            value={gitbookUrl}
+            onChange={(e) => setGitbookUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && gitbookUrl.trim()) {
+                handleGitBookImport();
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowGitBookDialog(false)}
+              disabled={gitbookImporting}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={handleGitBookImport}
+              disabled={!gitbookUrl.trim() || gitbookImporting}
+            >
+              {gitbookImporting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  导入中...
+                </>
+              ) : (
+                "开始导入"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

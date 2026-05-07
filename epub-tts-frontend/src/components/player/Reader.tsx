@@ -88,7 +88,6 @@ export function Reader({
   const isReadMode = interactionMode === "read";
 
   // 概念角标: 把每个 occurrence 映射到包含其 matched_text 的 sentence
-  // - 跳过 mention 类型 (减少视觉打扰)
   // - 缺失 matched_text 的跳过
   // - 按 para_idx_in_chapter 升序处理, 用游标在 sentences 上前进, 避免同一关键词
   //   早期段落的句子吃掉后续段落的命中 (如 "transformer" 在第 1、5、20 段都出现时)
@@ -100,7 +99,6 @@ export function Reader({
     const items: BadgeItem[] = [];
     for (const ann of annotations) {
       for (const occ of ann.occurrences) {
-        if (occ.occurrence_type === "mention") continue;
         if (!occ.matched_text) continue;
         items.push({ ann, occurrence: occ });
       }
@@ -165,9 +163,12 @@ export function Reader({
         const { ann, occurrence } = m.item;
         const isCultural = ann.category === "cultural_context";
         const isDefinition = occurrence.occurrence_type === "definition";
-        const badgeClass = isCultural
-          ? (isDefinition ? "bg-amber-500 hover:bg-amber-600" : "bg-amber-300 hover:bg-amber-400")
-          : (isDefinition ? "bg-violet-500 hover:bg-violet-600" : "bg-violet-300 hover:bg-violet-400");
+        const isMention = occurrence.occurrence_type === "mention";
+        const badgeClass = isMention
+          ? "bg-slate-400 hover:bg-slate-500"
+          : isCultural
+            ? (isDefinition ? "bg-amber-500 hover:bg-amber-600" : "bg-amber-300 hover:bg-amber-400")
+            : (isDefinition ? "bg-violet-500 hover:bg-violet-600" : "bg-violet-300 hover:bg-violet-400");
         const popoverBody =
           ann.popover.initial_definition ||
           occurrence.core_sentence ||

@@ -132,6 +132,33 @@ export class BookService implements IBookService {
 
     return response.json();
   }
+
+  async importGitBook(url: string): Promise<{ taskId: string; status: string }> {
+    const response = await fetchWithAuth(`${API_URL}/books/import/gitbook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: "Import failed" }));
+      throw new Error(err.detail || "Import failed");
+    }
+    return response.json();
+  }
+
+  async getGitBookImportStatus(taskId: string): Promise<{
+    status: string;
+    bookId?: string;
+    title?: string;
+    totalPages?: number;
+    error?: string;
+  }> {
+    const response = await fetchWithAuth(`${API_URL}/books/import/gitbook/${taskId}`);
+    if (!response.ok) {
+      throw new Error("Failed to get import status");
+    }
+    return response.json();
+  }
 }
 
 interface PreloadEntry {
