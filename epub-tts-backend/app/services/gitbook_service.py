@@ -307,6 +307,13 @@ def _build_epub(
         chapter_id = f"chapter_{i}"
         filename = f"{chapter_id}.xhtml"
 
+        # Sanitize content: re-parse with BeautifulSoup to produce clean HTML
+        # that ebooklib can handle without lxml parse errors
+        content_soup = BeautifulSoup(ch["content"], "html.parser")
+        clean_content = content_soup.decode_contents()
+        if not clean_content.strip():
+            continue
+
         epub_ch = epub.EpubHtml(
             title=ch["title"],
             file_name=filename,
@@ -318,13 +325,16 @@ def _build_epub(
 <head><title>{ch['title']}</title></head>
 <body>
 <h1>{ch['title']}</h1>
-{ch['content']}
+{clean_content}
 </body>
-</html>"""
+</html>""".encode("utf-8")
 
         book.add_item(epub_ch)
         epub_chapters.append(epub_ch)
         spine.append(epub_ch)
+
+    if not epub_chapters:
+        raise GitBookImportError("No valid content could be extracted from the GitBook")
 
     # Table of contents
     book.toc = [
