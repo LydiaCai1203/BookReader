@@ -307,11 +307,10 @@ def _build_epub(
         chapter_id = f"chapter_{i}"
         filename = f"{chapter_id}.xhtml"
 
-        # Sanitize content: re-parse with BeautifulSoup to produce clean HTML
-        # that ebooklib can handle without lxml parse errors
+        # Sanitize content: extract plain text as fallback, use cleaned HTML if parseable
         content_soup = BeautifulSoup(ch["content"], "html.parser")
-        clean_content = content_soup.decode_contents()
-        if not clean_content.strip():
+        plain_text = content_soup.get_text(separator="\n").strip()
+        if not plain_text:
             continue
 
         epub_ch = epub.EpubHtml(
@@ -319,6 +318,9 @@ def _build_epub(
             file_name=filename,
             lang="en",
         )
+
+        # Try cleaned HTML first; if ebooklib/lxml can't parse it, fall back to plain text
+        clean_content = content_soup.decode_contents()
         epub_ch.content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -328,6 +330,25 @@ def _build_epub(
 {clean_content}
 </body>
 </html>""".encode("utf-8")
+
+        try:
+            body = epub_ch.get_body_content()
+            if not body or not body.strip():
+                raise ValueError("empty body")
+        except Exception:
+            # Fallback: use escaped plain text wrapped in <p> tags
+            escaped_text = plain_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            paragraphs = "\n".join(f"<p>{line}</p>" for line in escaped_text.splitlines() if line.strip())
+            epub_ch.content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>{ch['title']}</title></head>
+<body>
+<h1>{ch['title']}</h1>
+{paragraphs}
+</body>
+</html>""".encode("utf-8")
+            logger.warning(f"[GitBook] Chapter '{ch['title']}' fell back to plain text")
 
         book.add_item(epub_ch)
         epub_chapters.append(epub_ch)
