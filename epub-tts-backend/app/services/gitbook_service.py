@@ -79,6 +79,7 @@ async def import_gitbook(url: str, user_id: str) -> dict:
                         chapters.append({
                             "title": page_title,
                             "content": content,
+                            "source_url": page_url,
                         })
                 except Exception as e:
                     logger.warning(f"[GitBook] Failed to fetch {page_url}: {e}")
@@ -299,16 +300,61 @@ def _build_epub(
     book.add_author("GitBook")
     book.add_metadata("DC", "source", source_url)
 
+    parsed_base = urlparse(source_url)
+    base_domain = parsed_base.netloc
+
+    # Build URL → filename mapping for internal link rewriting
+    url_to_filename: dict[str, str] = {}
+    for i, ch in enumerate(chapters):
+        filename = f"chapter_{i}.xhtml"
+        src_url = ch.get("source_url", "")
+        if src_url:
+            # Map full URL
+            url_to_filename[src_url] = filename
+            # Map path only (for relative links)
+            parsed = urlparse(src_url)
+            url_to_filename[parsed.path] = filename
+            # Map path without trailing slash
+            stripped = parsed.path.rstrip("/")
+            if stripped:
+                url_to_filename[stripped] = filename
+                url_to_filename[stripped + "/"] = filename
+
     # Create chapters
     epub_chapters = []
     spine = ["nav"]
 
     for i, ch in enumerate(chapters):
-        chapter_id = f"chapter_{i}"
-        filename = f"{chapter_id}.xhtml"
+        filename = f"chapter_{i}.xhtml"
 
-        # Sanitize content: extract plain text as fallback, use cleaned HTML if parseable
+        # Parse and clean content, rewrite internal links
         content_soup = BeautifulSoup(ch["content"], "html.parser")
+
+        # Rewrite <a href="..."> links that point to other chapters
+        for a_tag in content_soup.find_all("a", href=True):
+            href = a_tag["href"]
+            resolved = urljoin(ch.get("source_url", source_url), href)
+            parsed = urlparse(resolved)
+
+            # Only rewrite same-domain links
+            if parsed.netloc and parsed.netloc != base_domain:
+                continue
+
+            # Try to find a matching chapter filename
+            target = (
+                url_to_filename.get(resolved)
+                or url_to_filename.get(f"{parsed.scheme}://{parsed.netloc}{parsed.path}")
+                or url_to_filename.get(parsed.path)
+                or url_to_filename.get(parsed.path.rstrip("/"))
+            )
+            if target:
+                fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+                a_tag["href"] = f"{target}{fragment}"
+            else:
+                # External or unmatched link — keep as absolute URL so it doesn't break
+                if not href.startswith("http"):
+                    a_tag["href"] = resolved
+
         plain_text = content_soup.get_text(separator="\n").strip()
         if not plain_text:
             continue
@@ -319,7 +365,6 @@ def _build_epub(
             lang="en",
         )
 
-        # Try cleaned HTML first; if ebooklib/lxml can't parse it, fall back to plain text
         clean_content = content_soup.decode_contents()
         epub_ch.content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -336,7 +381,6 @@ def _build_epub(
             if not body or not body.strip():
                 raise ValueError("empty body")
         except Exception:
-            # Fallback: use escaped plain text wrapped in <p> tags
             escaped_text = plain_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             paragraphs = "\n".join(f"<p>{line}</p>" for line in escaped_text.splitlines() if line.strip())
             epub_ch.content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -371,4 +415,4 @@ def _build_epub(
     book.spine = spine
 
     epub.write_epub(output_path, book)
-    logger.info(f"[GitBook] EPUB written to {output_path} ({len(chapters)} chapters)")
+    logger.info(f"[GitBook] EPUB written to {output_path} ({len(epub_chapters)} chapters)")
