@@ -1,175 +1,256 @@
 """Format converter service — converts non-EPUB ebook formats to EPUB.
 
-Strategy:
-1. Try `mobi` Python package (pure Python, no external deps) — unpacks MOBI to EPUB/HTML
-2. Fallback to Calibre `ebook-convert` CLI if available
-
-The `mobi` package (pip install mobi) uses KindleUnpack internally.
-For KF8 (newer Kindle format), it directly extracts the embedded EPUB.
-For older MOBI, it extracts HTML which we then wrap into an EPUB.
+Strategy: Use `mobi` Python package (pure Python, no external deps).
+The `mobi` package uses KindleUnpack internally to extract MOBI content.
+If the extracted result is a valid EPUB, use it directly.
+Otherwise, extract HTML + metadata and build a proper EPUB.
 """
 import os
+import re
 import glob
 import shutil
-import tempfile
 import uuid
+import zipfile
 
 from loguru import logger
+
+
+def _is_valid_epub(path: str) -> bool:
+    """Check if a file is a valid EPUB (ZIP with proper structure)."""
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = zf.namelist()
+            return "mimetype" in names or any(n.startswith("META-INF/") for n in names)
+    except (zipfile.BadZipFile, Exception):
+        return False
 
 
 async def convert_mobi_to_epub(mobi_path: str, epub_path: str) -> None:
     """Convert a MOBI file to EPUB.
 
-    Args:
-        mobi_path: Path to the source .mobi file.
-        epub_path: Path where the output .epub should be written.
-
     Raises:
         RuntimeError: If conversion fails.
     """
-    # Strategy 1: Use `mobi` package (pure Python)
     try:
         import mobi
-        logger.info(f"[FormatConverter] Using mobi package: {mobi_path} -> {epub_path}")
-
-        tempdir, extracted_epub = mobi.extract(mobi_path)
-
-        try:
-            if extracted_epub and os.path.exists(extracted_epub):
-                # KF8 format — mobi package directly extracted an EPUB
-                shutil.copy2(extracted_epub, epub_path)
-                logger.info("[FormatConverter] Extracted EPUB from KF8 MOBI")
-                return
-
-            # Older MOBI format — find extracted HTML and build EPUB
-            html_files = glob.glob(os.path.join(tempdir, "**", "*.html"), recursive=True)
-            html_files += glob.glob(os.path.join(tempdir, "**", "*.htm"), recursive=True)
-
-            if not html_files:
-                raise RuntimeError("No HTML content found in extracted MOBI")
-
-            _build_epub_from_html(html_files, epub_path, tempdir)
-            logger.info("[FormatConverter] Built EPUB from MOBI HTML content")
-        finally:
-            # Clean up the temp directory created by mobi.extract
-            if tempdir and os.path.isdir(tempdir):
-                shutil.rmtree(tempdir, ignore_errors=True)
-        return
-
     except ImportError:
-        logger.warning("[FormatConverter] mobi package not installed, trying Calibre")
+        raise RuntimeError("mobi 包未安装，请运行 pip install mobi")
+
+    logger.info(f"[FormatConverter] Extracting MOBI: {mobi_path}")
+    tempdir, extracted_path = mobi.extract(mobi_path)
+
+    try:
+        # Check if extracted result is a valid EPUB
+        if extracted_path and os.path.exists(extracted_path) and _is_valid_epub(extracted_path):
+            shutil.copy2(extracted_path, epub_path)
+            logger.info("[FormatConverter] Extracted valid EPUB from KF8 MOBI")
+            return
+
+        # Not a valid EPUB — build one from extracted HTML + OPF metadata
+        logger.info("[FormatConverter] Extracted file is not valid EPUB, building from HTML")
+        _build_epub_from_extracted(tempdir, epub_path)
+        logger.info("[FormatConverter] EPUB built successfully")
+    finally:
+        if tempdir and os.path.isdir(tempdir):
+            shutil.rmtree(tempdir, ignore_errors=True)
+
+
+def _parse_opf_metadata(tempdir: str) -> dict:
+    """Extract metadata (title, author, cover image path) from content.opf."""
+    from bs4 import BeautifulSoup
+
+    meta = {"title": "Unknown Title", "author": "Unknown Author", "cover_href": None}
+
+    opf_files = glob.glob(os.path.join(tempdir, "**", "*.opf"), recursive=True)
+    if not opf_files:
+        return meta
+
+    try:
+        with open(opf_files[0], "r", encoding="utf-8", errors="replace") as f:
+            soup = BeautifulSoup(f.read(), "html.parser")
+
+        title_tag = soup.find("dc:title") or soup.find("title")
+        if title_tag and title_tag.get_text().strip():
+            meta["title"] = title_tag.get_text().strip()
+
+        creator_tag = soup.find("dc:creator") or soup.find("creator")
+        if creator_tag and creator_tag.get_text().strip():
+            meta["author"] = creator_tag.get_text().strip()
+
+        # Find cover image
+        cover_meta = soup.find("meta", attrs={"name": "cover"})
+        if cover_meta and cover_meta.get("content"):
+            cover_id = cover_meta["content"]
+            cover_item = soup.find("item", attrs={"id": cover_id})
+            if cover_item and cover_item.get("href"):
+                meta["cover_href"] = cover_item["href"]
     except Exception as e:
-        logger.warning(f"[FormatConverter] mobi package failed: {e}, trying Calibre")
+        logger.warning(f"[FormatConverter] Failed to parse OPF: {e}")
 
-    # Strategy 2: Fallback to Calibre CLI
-    import asyncio
-    binary = shutil.which("ebook-convert")
-    if not binary:
-        raise RuntimeError(
-            "MOBI 转换失败：请安装 mobi 包 (pip install mobi) 或 Calibre (apt-get install calibre)"
-        )
-
-    logger.info(f"[FormatConverter] Using Calibre: {mobi_path} -> {epub_path}")
-    proc = await asyncio.create_subprocess_exec(
-        binary, mobi_path, epub_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-
-    if proc.returncode != 0:
-        err_msg = stderr.decode(errors="replace").strip()
-        logger.error(f"[FormatConverter] ebook-convert failed: {err_msg}")
-        raise RuntimeError(f"ebook-convert failed (exit {proc.returncode}): {err_msg}")
-
-    logger.info("[FormatConverter] Calibre conversion succeeded")
+    return meta
 
 
-def _build_epub_from_html(
-    html_files: list[str], epub_path: str, tempdir: str
-) -> None:
-    """Build an EPUB from extracted HTML files."""
+# 章节标题正则 — 匹配中英文章节标题
+_CHAPTER_RE = re.compile(
+    r'^(?:'
+    r'第[一二三四五六七八九十百千万零○〇\d]+[章回节篇卷集部]'
+    r'|Chapter\s+\d+'
+    r'|CHAPTER\s+\d+'
+    r'|PART\s+\d+'
+    r'|Part\s+\d+'
+    r')',
+    re.MULTILINE,
+)
+
+
+def _split_html_to_chapters(html_content: str) -> list[dict]:
+    """Split a large HTML file into chapters by detecting heading patterns.
+
+    Returns list of {"title": str, "html": str}.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html_content, "html.parser")
+    body = soup.find("body") or soup
+
+    # Collect all block elements
+    elements = body.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div"])
+
+    # Find chapter boundaries
+    chapter_starts = []
+    for i, el in enumerate(elements):
+        text = el.get_text().strip()
+        if not text:
+            continue
+        # Check heading tags or chapter pattern in text
+        is_heading = el.name in ("h1", "h2", "h3")
+        is_chapter_pattern = bool(_CHAPTER_RE.match(text))
+        if is_heading or is_chapter_pattern:
+            chapter_starts.append((i, text[:80]))
+
+    # If we found fewer than 2 chapter markers, return as single chapter
+    if len(chapter_starts) < 2:
+        return [{"title": "全文", "html": str(body)}]
+
+    chapters = []
+    for idx, (start_pos, title) in enumerate(chapter_starts):
+        end_pos = chapter_starts[idx + 1][0] if idx + 1 < len(chapter_starts) else len(elements)
+
+        # Collect elements for this chapter
+        chapter_els = elements[start_pos:end_pos]
+        chapter_html = "\n".join(str(el) for el in chapter_els)
+        if chapter_html.strip():
+            chapters.append({"title": title, "html": chapter_html})
+
+    return chapters if chapters else [{"title": "全文", "html": str(body)}]
+
+
+def _build_epub_from_extracted(tempdir: str, epub_path: str) -> None:
+    """Build an EPUB from the extracted MOBI contents."""
     from ebooklib import epub
     from bs4 import BeautifulSoup
 
-    book = epub.EpubBook()
-    book.set_identifier(f"mobi-{uuid.uuid4().hex[:12]}")
-    book.set_language("en")
+    # Parse metadata from OPF
+    meta = _parse_opf_metadata(tempdir)
 
-    # Try to extract title from the first HTML
-    title = "Unknown Title"
-    author = "Unknown Author"
+    # Find HTML files
+    html_files = glob.glob(os.path.join(tempdir, "**", "*.html"), recursive=True)
+    html_files += glob.glob(os.path.join(tempdir, "**", "*.htm"), recursive=True)
 
-    # Sort HTML files for consistent ordering
+    if not html_files:
+        raise RuntimeError("MOBI 中未找到 HTML 内容")
+
     html_files.sort()
 
-    epub_chapters = []
-    spine = ["nav"]
-
-    for i, html_file in enumerate(html_files):
+    # Read all HTML content
+    all_html = ""
+    for hf in html_files:
         try:
-            with open(html_file, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
+            with open(hf, "r", encoding="utf-8", errors="replace") as f:
+                all_html += f.read()
         except Exception:
             continue
 
-        soup = BeautifulSoup(content, "html.parser")
+    if not all_html.strip():
+        raise RuntimeError("MOBI 中的 HTML 内容为空")
 
-        # Extract title from first file
-        if i == 0:
-            title_tag = soup.find("title")
-            if title_tag and title_tag.get_text().strip():
-                title = title_tag.get_text().strip()
-            # Try to find author in meta
-            author_meta = soup.find("meta", attrs={"name": "author"})
-            if author_meta and author_meta.get("content"):
-                author = author_meta["content"]
+    # Split into chapters
+    chapters = _split_html_to_chapters(all_html)
 
-        # Extract body content
-        body = soup.find("body")
-        body_html = str(body) if body else content
+    # Build EPUB
+    book = epub.EpubBook()
+    book.set_identifier(f"mobi-{uuid.uuid4().hex[:12]}")
+    book.set_title(meta["title"])
+    book.set_language("zh")
+    book.add_author(meta["author"])
 
-        # Find chapter title from heading
-        chapter_title = f"Chapter {i + 1}"
-        heading = soup.find(["h1", "h2", "h3"])
-        if heading and heading.get_text().strip():
-            chapter_title = heading.get_text().strip()[:100]
-
-        chapter_id = f"chapter_{i}"
-        epub_ch = epub.EpubHtml(
-            title=chapter_title,
-            file_name=f"{chapter_id}.xhtml",
-            lang="en",
+    # Add cover image if found
+    if meta["cover_href"]:
+        opf_dir = os.path.dirname(
+            glob.glob(os.path.join(tempdir, "**", "*.opf"), recursive=True)[0]
         )
-        epub_ch.content = body_html
+        cover_path = os.path.join(opf_dir, meta["cover_href"])
+        if os.path.exists(cover_path):
+            try:
+                with open(cover_path, "rb") as f:
+                    cover_data = f.read()
+                book.set_cover("cover.jpg", cover_data)
+            except Exception as e:
+                logger.warning(f"[FormatConverter] Failed to add cover: {e}")
+
+    # Create chapter items
+    epub_chapters = []
+    spine = ["nav"]
+
+    for i, ch in enumerate(chapters):
+        # Clean the HTML
+        soup = BeautifulSoup(ch["html"], "html.parser")
+        clean_html = soup.decode_contents()
+        if not clean_html.strip():
+            continue
+
+        epub_ch = epub.EpubHtml(
+            title=ch["title"],
+            file_name=f"chapter_{i}.xhtml",
+            lang="zh",
+        )
+        epub_ch.content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>{ch['title']}</title></head>
+<body>
+{clean_html}
+</body>
+</html>""".encode("utf-8")
+
         book.add_item(epub_ch)
         epub_chapters.append(epub_ch)
         spine.append(epub_ch)
 
     if not epub_chapters:
-        raise RuntimeError("No valid HTML content extracted from MOBI")
+        raise RuntimeError("未能从 MOBI 中提取有效章节")
 
-    book.set_title(title)
-    book.add_author(author)
-
-    # Add images found in tempdir
+    # Add all images from extracted directory
     image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"}
     for root, dirs, files in os.walk(tempdir):
         for fname in files:
             ext = os.path.splitext(fname)[1].lower()
             if ext in image_extensions:
                 img_path = os.path.join(root, fname)
-                rel_path = os.path.relpath(img_path, tempdir)
                 try:
                     with open(img_path, "rb") as f:
                         img_content = f.read()
-                    media_type = f"image/{ext.lstrip('.')}"
-                    if ext == ".svg":
+                    media_type = "image/jpeg"
+                    if ext == ".png":
+                        media_type = "image/png"
+                    elif ext == ".gif":
+                        media_type = "image/gif"
+                    elif ext == ".svg":
                         media_type = "image/svg+xml"
-                    elif ext in (".jpg", ".jpeg"):
-                        media_type = "image/jpeg"
+                    elif ext == ".webp":
+                        media_type = "image/webp"
                     img_item = epub.EpubImage()
-                    img_item.file_name = f"images/{fname}"
+                    img_item.file_name = f"Images/{fname}"
                     img_item.media_type = media_type
                     img_item.content = img_content
                     book.add_item(img_item)
@@ -186,3 +267,4 @@ def _build_epub_from_html(
     book.spine = spine
 
     epub.write_epub(epub_path, book)
+    logger.info(f"[FormatConverter] Built EPUB with {len(epub_chapters)} chapters")
