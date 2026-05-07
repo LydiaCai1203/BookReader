@@ -3,9 +3,11 @@
 Handles both modern (Next.js SPA) and legacy (static HTML) GitBook sites.
 Limits to 500 pages max to prevent abuse.
 """
+import hashlib
 import os
 import re
 import uuid
+from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -19,16 +21,18 @@ from shared.models import Book
 
 MAX_PAGES = 500
 REQUEST_TIMEOUT = 30.0
+IMAGE_TIMEOUT = 15.0
 
 
 class GitBookImportError(Exception):
     pass
 
 
-async def import_gitbook(url: str, user_id: str) -> dict:
+async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable] = None) -> dict:
     """Import a GitBook site as an EPUB book.
 
     This is the main entry point called from the background task.
+    on_progress(current, total, title) is called after each page fetch.
     Returns dict with book info on success.
     """
     book_id = str(uuid.uuid4())
@@ -62,20 +66,33 @@ async def import_gitbook(url: str, user_id: str) -> dict:
                 )
                 toc_links = toc_links[:MAX_PAGES]
 
-            # Fetch all pages
+            # Fetch all pages and download images
             chapters = []
+            all_images: list[epub.EpubImage] = []
+            seen_images: dict[str, str] = {}  # url -> epub internal path
+
+            total_pages = len(toc_links)
             for i, link in enumerate(toc_links):
                 page_url = link["url"]
                 page_title = link["title"]
                 logger.info(
-                    f"[GitBook] Fetching page {i + 1}/{len(toc_links)}: {page_title}"
+                    f"[GitBook] Fetching page {i + 1}/{total_pages}: {page_title}"
                 )
+
+                if on_progress:
+                    on_progress(current=i + 1, total=total_pages, title=site_title)
+
                 try:
                     page_resp = await client.get(page_url)
                     page_resp.raise_for_status()
                     page_html = page_resp.text
                     content = _extract_page_content(page_html)
                     if content.strip():
+                        # Download and embed images
+                        content, page_images = await _process_images(
+                            content, client, page_url, seen_images
+                        )
+                        all_images.extend(page_images)
                         chapters.append({
                             "title": page_title,
                             "content": content,
@@ -95,6 +112,7 @@ async def import_gitbook(url: str, user_id: str) -> dict:
                 chapters=chapters,
                 output_path=epub_path,
                 source_url=url,
+                images=all_images,
             )
 
         # Parse metadata and cover from the generated EPUB
@@ -290,6 +308,7 @@ def _build_epub(
     chapters: list[dict],
     output_path: str,
     source_url: str,
+    images: list[epub.EpubImage] | None = None,
 ) -> None:
     """Build an EPUB file from extracted GitBook chapters."""
     book = epub.EpubBook()
@@ -414,5 +433,105 @@ def _build_epub(
     # Spine
     book.spine = spine
 
+    # Add images
+    if images:
+        for img in images:
+            book.add_item(img)
+
     epub.write_epub(output_path, book)
-    logger.info(f"[GitBook] EPUB written to {output_path} ({len(epub_chapters)} chapters)")
+    logger.info(f"[GitBook] EPUB written to {output_path} ({len(epub_chapters)} chapters, {len(images or [])} images)")
+
+
+# Map common content-type to file extension
+_MIME_TO_EXT = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+}
+
+
+async def _process_images(
+    html: str,
+    client: httpx.AsyncClient,
+    page_url: str,
+    seen_images: dict[str, str],
+) -> tuple[str, list[epub.EpubImage]]:
+    """Download images referenced in HTML and rewrite src to EPUB-internal paths.
+
+    Args:
+        html: page HTML content
+        client: httpx client for downloading
+        page_url: URL of the page (for resolving relative src)
+        seen_images: shared dict mapping image URL -> epub path (deduplication across pages)
+
+    Returns:
+        (rewritten_html, list_of_new_EpubImage_items)
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    new_images: list[epub.EpubImage] = []
+
+    for img_tag in soup.find_all("img", src=True):
+        src = img_tag["src"]
+
+        # Skip data URIs
+        if src.startswith("data:"):
+            continue
+
+        # Resolve relative URLs
+        abs_url = urljoin(page_url, src)
+
+        # Already downloaded in a previous page
+        if abs_url in seen_images:
+            img_tag["src"] = seen_images[abs_url]
+            continue
+
+        try:
+            img_resp = await client.get(abs_url, timeout=IMAGE_TIMEOUT)
+            img_resp.raise_for_status()
+            img_data = img_resp.content
+            if not img_data:
+                raise ValueError("empty response")
+
+            # Determine file extension from content-type
+            content_type = img_resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            ext = _MIME_TO_EXT.get(content_type)
+            if not ext:
+                # Try to guess from URL path
+                url_path = urlparse(abs_url).path
+                for known_ext in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"):
+                    if url_path.lower().endswith(known_ext):
+                        ext = known_ext
+                        break
+                if not ext:
+                    ext = ".jpg"  # fallback
+
+            # Generate a unique filename based on URL hash
+            url_hash = hashlib.md5(abs_url.encode()).hexdigest()[:12]
+            epub_path = f"images/{url_hash}{ext}"
+
+            # Determine MIME type for EPUB
+            media_type = content_type if content_type in _MIME_TO_EXT else f"image/{ext.lstrip('.')}"
+            if media_type == "image/jpg":
+                media_type = "image/jpeg"
+
+            epub_img = epub.EpubImage()
+            epub_img.file_name = epub_path
+            epub_img.media_type = media_type
+            epub_img.content = img_data
+
+            new_images.append(epub_img)
+            seen_images[abs_url] = epub_path
+            img_tag["src"] = epub_path
+
+        except Exception as e:
+            logger.debug(f"[GitBook] Failed to download image {abs_url}: {e}")
+            # Keep the img tag with alt text visible, remove broken src
+            alt = img_tag.get("alt", "")
+            if alt:
+                img_tag.replace_with(f"[{alt}]")
+            else:
+                img_tag.decompose()
+
+    return str(soup), new_images

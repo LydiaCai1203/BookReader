@@ -151,6 +151,8 @@ export class BookService implements IBookService {
     bookId?: string;
     title?: string;
     totalPages?: number;
+    currentPage?: number;
+    progress?: string;
     error?: string;
   }> {
     const response = await fetchWithAuth(`${API_URL}/books/import/gitbook/${taskId}`);

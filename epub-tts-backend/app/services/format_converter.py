@@ -6,7 +6,6 @@ If the extracted result is a valid EPUB, use it directly.
 Otherwise, extract HTML + metadata and build a proper EPUB.
 """
 import os
-import re
 import glob
 import shutil
 import uuid
@@ -90,21 +89,16 @@ def _parse_opf_metadata(tempdir: str) -> dict:
     return meta
 
 
-# 章节标题正则 — 匹配中英文章节标题
-_CHAPTER_RE = re.compile(
-    r'^(?:'
-    r'第[一二三四五六七八九十百千万零○〇\d]+[章回节篇卷集部]'
-    r'|Chapter\s+\d+'
-    r'|CHAPTER\s+\d+'
-    r'|PART\s+\d+'
-    r'|Part\s+\d+'
-    r')',
-    re.MULTILINE,
-)
+# 每个章节大约多少段落
+_PARAGRAPHS_PER_CHAPTER = 30
 
 
 def _split_html_to_chapters(html_content: str) -> list[dict]:
-    """Split a large HTML file into chapters by detecting heading patterns.
+    """Split a large HTML file into chapters.
+
+    Strategy:
+    - If the HTML has explicit heading tags (h1-h3), split by headings.
+    - Otherwise, split evenly by paragraph count with numbered titles.
 
     Returns list of {"title": str, "html": str}.
     """
@@ -115,32 +109,51 @@ def _split_html_to_chapters(html_content: str) -> list[dict]:
 
     # Collect all block elements
     elements = body.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div"])
+    if not elements:
+        return [{"title": "全文", "html": str(body)}]
 
-    # Find chapter boundaries
-    chapter_starts = []
+    # Strategy 1: Try splitting by heading tags (h1-h3)
+    heading_starts = []
     for i, el in enumerate(elements):
-        text = el.get_text().strip()
-        if not text:
-            continue
-        # Check heading tags or chapter pattern in text
-        is_heading = el.name in ("h1", "h2", "h3")
-        is_chapter_pattern = bool(_CHAPTER_RE.match(text))
-        if is_heading or is_chapter_pattern:
-            chapter_starts.append((i, text[:80]))
+        if el.name in ("h1", "h2", "h3"):
+            text = el.get_text().strip()
+            if text:
+                heading_starts.append((i, text[:80]))
 
-    # If we found fewer than 2 chapter markers, return as single chapter
-    if len(chapter_starts) < 2:
+    if len(heading_starts) >= 3:
+        # Use headings as chapter boundaries
+        chapters = []
+        for idx, (start_pos, title) in enumerate(heading_starts):
+            end_pos = heading_starts[idx + 1][0] if idx + 1 < len(heading_starts) else len(elements)
+            chapter_els = elements[start_pos:end_pos]
+            chapter_html = "\n".join(str(el) for el in chapter_els)
+            if chapter_html.strip():
+                chapters.append({"title": title, "html": chapter_html})
+        if chapters:
+            return chapters
+
+    # Strategy 2: No headings — split evenly by paragraph count
+    # Filter out empty elements
+    non_empty = [(i, el) for i, el in enumerate(elements) if el.get_text().strip()]
+    if not non_empty:
+        return [{"title": "全文", "html": str(body)}]
+
+    total = len(non_empty)
+    if total <= _PARAGRAPHS_PER_CHAPTER:
         return [{"title": "全文", "html": str(body)}]
 
     chapters = []
-    for idx, (start_pos, title) in enumerate(chapter_starts):
-        end_pos = chapter_starts[idx + 1][0] if idx + 1 < len(chapter_starts) else len(elements)
-
-        # Collect elements for this chapter
-        chapter_els = elements[start_pos:end_pos]
+    chapter_num = 1
+    for start in range(0, total, _PARAGRAPHS_PER_CHAPTER):
+        end = min(start + _PARAGRAPHS_PER_CHAPTER, total)
+        chapter_els = [el for _, el in non_empty[start:end]]
         chapter_html = "\n".join(str(el) for el in chapter_els)
         if chapter_html.strip():
-            chapters.append({"title": title, "html": chapter_html})
+            chapters.append({
+                "title": f"第 {chapter_num} 节",
+                "html": chapter_html,
+            })
+            chapter_num += 1
 
     return chapters if chapters else [{"title": "全文", "html": str(body)}]
 

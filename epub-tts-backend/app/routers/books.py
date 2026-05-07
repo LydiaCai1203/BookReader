@@ -139,10 +139,18 @@ def _import_gitbook_bg(task_id: str, url: str, user_id: str):
     import asyncio
     from app.services.gitbook_service import import_gitbook, GitBookImportError
 
+    def on_progress(current: int, total: int, title: str):
+        _gitbook_import_status[task_id] = {
+            "status": "importing",
+            "progress": "fetching_pages",
+            "currentPage": current,
+            "totalPages": total,
+            "title": title,
+        }
+
+    loop = asyncio.new_event_loop()
     try:
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(import_gitbook(url, user_id))
-        loop.close()
+        result = loop.run_until_complete(import_gitbook(url, user_id, on_progress=on_progress))
         _gitbook_import_status[task_id] = {
             "status": "completed",
             "bookId": result["bookId"],
@@ -160,6 +168,8 @@ def _import_gitbook_bg(task_id: str, url: str, user_id: str):
             "status": "failed",
             "error": f"导入失败: {str(e)}",
         }
+    finally:
+        loop.close()
 
 
 @router.get("")

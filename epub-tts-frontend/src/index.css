@@ -305,3 +305,58 @@ body::after {
   font-size: calc(var(--font-size-mobile) * 1.15) !important;
   font-family: var(--reading-font-family) !important;
 }
+
+.html-read-mode pre {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.9em;
+  margin: 1em 0;
+}
+
+.dark .html-read-mode pre,
+[data-theme="night"] .html-read-mode pre {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.html-read-mode code {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.html-read-mode pre code {
+  background: none;
+  padding: 0;
+}
+
+.html-read-mode table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+
+.html-read-mode th,
+.html-read-mode td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.html-read-mode th {
+  background-color: rgba(0, 0, 0, 0.03);
+  font-weight: 600;
+}
+
+.dark .html-read-mode th,
+[data-theme="night"] .html-read-mode th {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.html-read-mode img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 0.5em 0;
+}
