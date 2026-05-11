@@ -61,18 +61,27 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                 # Single-page GitBook or unrecognized structure
                 toc_links = [{"title": site_title, "url": url}]
 
-            if len(toc_links) > MAX_PAGES:
+            def _flatten_toc(items: list[dict]) -> list[dict]:
+                flat = []
+                for item in items:
+                    flat.append(item)
+                    flat.extend(_flatten_toc(item.get("subitems", [])))
+                return flat
+
+            flat_links = _flatten_toc(toc_links)
+
+            if len(flat_links) > MAX_PAGES:
                 logger.warning(
-                    f"[GitBook] TOC has {len(toc_links)} pages, truncating to {MAX_PAGES}"
+                    f"[GitBook] TOC has {len(flat_links)} pages, truncating to {MAX_PAGES}"
                 )
-                toc_links = toc_links[:MAX_PAGES]
+                flat_links = flat_links[:MAX_PAGES]
 
             # Fetch all pages and download images (concurrently, limited)
             chapters = []
             all_images: list[epub.EpubImage] = []
             seen_images: dict[str, str] = {}  # url -> epub internal path
 
-            total_pages = len(toc_links)
+            total_pages = len(flat_links)
             CONCURRENCY = 5
             semaphore = asyncio.Semaphore(CONCURRENCY)
 
@@ -99,7 +108,7 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                         logger.warning(f"[GitBook] Failed to fetch {page_url}: {e}")
                     return None
 
-            tasks = [fetch_page(i, link) for i, link in enumerate(toc_links)]
+            tasks = [fetch_page(i, link) for i, link in enumerate(flat_links)]
             results = await asyncio.gather(*tasks)
 
             # Sort by original order and filter None
@@ -141,6 +150,7 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                 output_path=epub_path,
                 source_url=url,
                 images=all_images,
+                toc_tree=toc_links,
             )
 
         # Parse metadata and cover from the generated EPUB
@@ -283,32 +293,23 @@ def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
 
 
 def _extract_mkdocs_toc(nav_el, base_url: str, base_domain: str) -> list[dict]:
-    """Extract TOC from MkDocs nested nav structure, preserving hierarchy in titles."""
-    links = []
+    """Extract TOC from MkDocs nested nav structure, returning nested subitems."""
     seen_urls = set()
 
-    def _walk_items(parent_el, prefix: str = ""):
-        """Recursively walk nav items, building section-prefixed titles."""
-        # Find immediate <ul> inside this element
+    def _walk_items(parent_el) -> list[dict]:
         ul = parent_el.find("ul", recursive=False)
         if not ul:
-            # Also try finding inside a nested <nav>
             inner_nav = parent_el.find("nav", recursive=False)
             if inner_nav:
                 ul = inner_nav.find("ul", recursive=False)
         if not ul:
-            return
+            return []
 
+        items = []
         for li in ul.find_all("li", recursive=False):
-            # Check if this is a section header (label) or a link (a)
-            label = li.find("label", recursive=False)
             a_tag = li.find("a", recursive=False)
+            item = None
 
-            section_name = ""
-            if label:
-                section_name = label.get_text().strip()
-
-            # If there's a link (even alongside a label), add it
             if a_tag:
                 href = a_tag.get("href", "")
                 title = a_tag.get_text().strip()
@@ -319,20 +320,27 @@ def _extract_mkdocs_toc(nav_el, base_url: str, base_domain: str) -> list[dict]:
                         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                         if clean_url not in seen_urls:
                             seen_urls.add(clean_url)
-                            display_title = f"{prefix}{title}" if prefix else title
-                            links.append({"title": display_title, "url": clean_url})
+                            item = {"title": title, "url": clean_url, "subitems": []}
 
-            # Recurse into sub-navigation
+            # Recurse into sub-navigation (skip secondary/TOC navs)
             sub_nav = li.find("nav", recursive=False)
-            if sub_nav:
-                child_prefix = f"{prefix}{section_name} > " if section_name else prefix
-                _walk_items(sub_nav, child_prefix)
-            elif li.find("ul", recursive=False):
-                child_prefix = f"{prefix}{section_name} > " if section_name else prefix
-                _walk_items(li, child_prefix)
+            if sub_nav and "secondary" not in " ".join(sub_nav.get("class", [])):
+                children = _walk_items(sub_nav)
+            elif not sub_nav and li.find("ul", recursive=False):
+                children = _walk_items(li)
+            else:
+                children = []
 
-    _walk_items(nav_el)
-    return links
+            if item:
+                item["subitems"] = children
+                items.append(item)
+            else:
+                # Section label with no direct link — promote children to this level
+                items.extend(children)
+
+        return items
+
+    return _walk_items(nav_el)
 
 
 def _extract_pages_from_next_data(data: dict, base_url: str) -> list[dict]:
@@ -423,6 +431,7 @@ def _build_epub(
     output_path: str,
     source_url: str,
     images: list[epub.EpubImage] | None = None,
+    toc_tree: list[dict] | None = None,
 ) -> None:
     """Build an EPUB file from extracted GitBook chapters."""
     book = epub.EpubBook()
@@ -538,11 +547,29 @@ def _build_epub(
     if not epub_chapters:
         raise GitBookImportError("No valid content could be extracted from the GitBook")
 
-    # Table of contents
-    book.toc = [
-        epub.Link(ch.file_name, ch.title, ch.file_name.replace(".xhtml", ""))
-        for ch in epub_chapters
-    ]
+    # Table of contents — use nested toc_tree if available
+    url_to_epub_ch = {ch.title: ch for ch in epub_chapters}
+    # Also build a url→epub_ch map using source_url stored in chapters list
+    src_url_to_epub_ch = {}
+    for orig_ch, epub_ch in zip(chapters, epub_chapters):
+        src_url_to_epub_ch[orig_ch.get("source_url", "")] = epub_ch
+
+    def _build_toc_entry(node: dict):
+        ch = src_url_to_epub_ch.get(node["url"])
+        link = epub.Link(ch.file_name, node["title"], ch.file_name.replace(".xhtml", "")) if ch else None
+        children = [e for sub in node.get("subitems", []) for e in [_build_toc_entry(sub)] if e]
+        if children:
+            return (link, children) if link else tuple(children)
+        return link
+
+    if toc_tree:
+        toc_entries = [e for node in toc_tree for e in [_build_toc_entry(node)] if e]
+        book.toc = toc_entries
+    else:
+        book.toc = [
+            epub.Link(ch.file_name, ch.title, ch.file_name.replace(".xhtml", ""))
+            for ch in epub_chapters
+        ]
 
     # Navigation
     book.add_item(epub.EpubNcx())
