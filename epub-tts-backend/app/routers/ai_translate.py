@@ -28,9 +28,12 @@ def _get_translation_prompt(user_id: str, target_lang: str) -> str:
     if prefs and prefs.translation_prompt:
         return prefs.translation_prompt
     return (
-        f"You are a professional translator. Translate the following text to {target_lang}. "
-        "Keep the original meaning, tone, and formatting. "
-        "Only output the translation, no explanations or commentary."
+        f"You are a professional translator specializing in technical books. "
+        f"Translate the following text to {target_lang}. "
+        "Rules: "
+        "1. Keep all code snippets, commands, variable names, function names, and technical identifiers unchanged. "
+        "2. Keep the original meaning, tone, and formatting. "
+        "3. Only output the translation, no explanations or commentary."
     )
 
 
@@ -53,12 +56,16 @@ async def translate_chapter(request: TranslateChapterRequest, user_id: str = Dep
         translated_parts = []
         custom_prompt = _get_translation_prompt(user_id, request.target_lang)
         for i, sentence in enumerate(sentences):
-            try:
-                messages = AIService.build_translation_messages(sentence, request.target_lang, custom_prompt)
-                result = await service.chat_once(messages, temperature=0.3, max_tokens=2048)
-                translated_parts.append(result.strip())
-            except Exception as e:
-                translated_parts.append(sentence)  # fallback: keep original
+            # Skip code blocks and image markers — return as-is
+            if sentence.startswith("__CODE__:") or sentence.startswith("__IMG__:"):
+                translated_parts.append(sentence)
+            else:
+                try:
+                    messages = AIService.build_translation_messages(sentence, request.target_lang, custom_prompt)
+                    result = await service.chat_once(messages, temperature=0.3, max_tokens=2048)
+                    translated_parts.append(result.strip())
+                except Exception:
+                    translated_parts.append(sentence)  # fallback: keep original
             progress = int((i + 1) / total * 100)
             payload = json.dumps({
                 "progress": progress,

@@ -641,6 +641,19 @@ export default function BookReader() {
 
     if (!text) return;
 
+    // Skip code blocks and images in TTS
+    if (text.startsWith("__CODE__:") || text.startsWith("__IMG__:")) {
+      if (isBilingualMode && playBothPhase === "original" && translatedSentences[playingIndex]) {
+        setPlayBothPhase("translated");
+      } else {
+        if (isBilingualMode) setPlayBothPhase("original");
+        const next = playingIndex + 1;
+        setPlayingIndex(next);
+        setViewingIndex(next);
+      }
+      return;
+    }
+
     const thisSentenceIndex = playingIndex;
     const thisPhase = playBothPhase;
     const playKey = isBilingualMode

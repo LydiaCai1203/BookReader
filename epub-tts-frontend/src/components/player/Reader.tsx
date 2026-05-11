@@ -530,6 +530,8 @@ export function Reader({
     if (src.startsWith("http")) return src;
     return `${API_BASE}${src}`;
   };
+  const isCodeMarker = (text: string) => text.startsWith("__CODE__:");
+  const getCodeContent = (text: string) => text.slice("__CODE__:".length);
 
 
   // Scroll to highlight from notes panel
@@ -895,6 +897,14 @@ export function Reader({
                     </div>
                   );
                 }
+                // Code blocks span both columns
+                if (isCodeMarker(text)) {
+                  return (
+                    <div key={index} className="col-span-full my-2">
+                      <pre className="bg-muted rounded-md p-4 overflow-x-auto text-sm font-mono whitespace-pre">{getCodeContent(text)}</pre>
+                    </div>
+                  );
+                }
 
                 const isActive = index === current;
                 const isSentenceActive = isActive && isPlayMode;
@@ -978,6 +988,14 @@ export function Reader({
                   return (
                     <div key={index} id={`sentence-${index}`} className="flex justify-center my-4">
                       <img src={getImageUrl(text)} className="rounded-lg shadow-lg max-w-full max-h-[60vh] object-contain" loading="lazy" />
+                    </div>
+                  );
+                }
+                // Code blocks render as <pre>
+                if (isCodeMarker(text)) {
+                  return (
+                    <div key={index} id={`sentence-${index}`} className="my-2">
+                      <pre className="bg-muted rounded-md p-4 overflow-x-auto text-sm font-mono whitespace-pre">{getCodeContent(text)}</pre>
                     </div>
                   );
                 }

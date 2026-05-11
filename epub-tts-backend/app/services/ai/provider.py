@@ -317,9 +317,12 @@ class AIService:
         if custom_prompt:
             return custom_prompt
         return (
-            f"You are a professional translator. Translate the following text to {target_lang}. "
-            "Keep the original meaning, tone, and formatting. "
-            "Only output the translation, no explanations or commentary."
+            f"You are a professional translator specializing in technical books. "
+            f"Translate the following text to {target_lang}. "
+            "Rules: "
+            "1. Keep all code snippets, commands, variable names, function names, and technical identifiers unchanged. "
+            "2. Keep the original meaning, tone, and formatting. "
+            "3. Only output the translation, no explanations or commentary."
         )
 
     @staticmethod

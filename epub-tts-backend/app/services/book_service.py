@@ -703,6 +703,13 @@ class BookService:
                         blocks.append(f"__IMG__:{src}")
                     return blocks
 
+                # Collect <pre> as code block marker (preserve as-is, skip translation)
+                if tag == 'pre':
+                    text = element.get_text()
+                    if text.strip():
+                        blocks.append(f"__CODE__:{text}")
+                    return blocks
+
                 # If this block element has block-level children, recurse into them
                 has_block_children = any(
                     hasattr(c, 'name') and c.name in all_block_tags
@@ -741,7 +748,7 @@ class BookService:
                 for child in body.children:
                     blocks.extend(collect_blocks(child))
 
-        text = '\n\n'.join(b for b in blocks if not b.startswith('__IMG__:'))
+        text = '\n\n'.join(b for b in blocks if not b.startswith('__IMG__:') and not b.startswith('__CODE__:'))
 
         MAX_PARAGRAPH_LENGTH = 300
 
@@ -749,8 +756,8 @@ class BookService:
         for block in blocks:
             if not block:
                 continue
-            # Image markers pass through directly
-            if block.startswith('__IMG__:'):
+            # Image/code markers pass through directly
+            if block.startswith('__IMG__:') or block.startswith('__CODE__:'):
                 sentences.append(block)
                 continue
             if len(block) <= MAX_PARAGRAPH_LENGTH:

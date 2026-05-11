@@ -291,6 +291,7 @@ async def get_book(
 
             book_row.last_opened_at = func.now()
             db.commit()
+            toc_json_cached = book_row.toc_json
         except HTTPException:
             raise
         except Exception:
@@ -307,9 +308,9 @@ async def get_book(
 
     # Use cached TOC from DB if available, otherwise parse from EPUB
     toc = None
-    if book_row.toc_json:
+    if toc_json_cached:
         try:
-            toc = json.loads(book_row.toc_json)
+            toc = json.loads(toc_json_cached)
         except Exception:
             pass
 
