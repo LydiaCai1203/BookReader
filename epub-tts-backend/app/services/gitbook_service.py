@@ -437,6 +437,15 @@ def _extract_page_content(html: str, page_url: str = "") -> str:
     ):
         sidebar.decompose()
 
+    # Remove GitBook legacy search result placeholders
+    for el in content_el.find_all(class_=re.compile(r"search-noresults|search-results|no-results", re.I)):
+        el.decompose()
+    # Also remove by text pattern as fallback
+    for el in content_el.find_all(string=re.compile(r'results matching ""')):
+        parent = el.parent
+        if parent:
+            parent.decompose()
+
     # Remove MkDocs / ReadTheDocs / GitBook decorative elements
     # 1. GitHub edit buttons, source links
     for el in content_el.find_all(
