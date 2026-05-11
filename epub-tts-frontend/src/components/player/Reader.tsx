@@ -876,7 +876,8 @@ export function Reader({
                 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4
                 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4
                 [&_li]:my-1 [&_li]:text-foreground
-                [&_blockquote]:border-l-4 [&_blockquote]:border-primary/50 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:my-4"
+                [&_blockquote]:border-l-4 [&_blockquote]:border-primary/50 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:my-4
+                [&_svg]:max-w-full [&_svg]:h-auto"
               dangerouslySetInnerHTML={{ __html: processedHtml }}
             />
           ) : shouldRenderBilingual ? (
