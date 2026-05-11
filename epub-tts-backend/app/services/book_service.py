@@ -60,7 +60,7 @@ _epub_cache: dict[str, Any] = {}
 
 def _read_epub_cached(path: str):
     if path not in _epub_cache:
-        _epub_cache[path] = _read_epub_cached(path)
+        _epub_cache[path] = epub.read_epub(path)
     return _epub_cache[path]
 
 
