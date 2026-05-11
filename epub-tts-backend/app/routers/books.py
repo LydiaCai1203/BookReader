@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
@@ -69,6 +70,7 @@ async def upload_book(
                     file_path=file_path,
                     is_public=False,
                     source_type=source_type,
+                    toc_json=json.dumps(toc, ensure_ascii=False),
                 )
                 db.add(book)
                 db.commit()
@@ -302,12 +304,25 @@ async def get_book(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse metadata: {str(e)}")
 
-    try:
-        toc = BookService.get_toc(book_id, owner_id)
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        toc = []
+    # Use cached TOC from DB if available, otherwise parse from EPUB
+    toc = None
+    if book_row.toc_json:
+        try:
+            toc = json.loads(book_row.toc_json)
+        except Exception:
+            pass
+
+    if not toc:
+        try:
+            toc = BookService.get_toc(book_id, owner_id)
+            # Cache it for next time
+            with get_db() as db:
+                db.query(Book).filter(Book.id == book_id).update(
+                    {"toc_json": json.dumps(toc, ensure_ascii=False)}
+                )
+                db.commit()
+        except Exception as e:
+            toc = []
 
     if not toc:
         try:

@@ -55,6 +55,15 @@ def _detect_chapters_in_html(html_content: bytes | str) -> list[dict]:
     return chapters if len(chapters) >= 2 else []
 
 
+_epub_cache: dict[str, Any] = {}
+
+
+def _read_epub_cached(path: str):
+    if path not in _epub_cache:
+        _epub_cache[path] = _read_epub_cached(path)
+    return _epub_cache[path]
+
+
 class BookService:
     @staticmethod
     def get_book_path(user_id: str, book_id: str) -> str:
@@ -103,7 +112,7 @@ class BookService:
             raise HTTPException(status_code=404, detail="Book not found")
 
         try:
-            book = epub.read_epub(path)
+            book = _read_epub_cached(path)
 
             # Helper to get metadata safely
             def get_meta(name: str, namespace: str = 'DC') -> str:
@@ -188,7 +197,7 @@ class BookService:
             raise HTTPException(status_code=404, detail="Book not found")
 
         try:
-            book = epub.read_epub(path)
+            book = _read_epub_cached(path)
             toc = []
 
             # 收集 EPUB 中明确标记为封面/纯导航的文件（不应出现在章节列表）
@@ -485,7 +494,7 @@ class BookService:
             return None
 
         try:
-            book = epub.read_epub(path)
+            book = _read_epub_cached(path)
 
             try:
                 spine = book.spine
@@ -544,7 +553,7 @@ class BookService:
             except:
                 pass
 
-        book = epub.read_epub(path)
+        book = _read_epub_cached(path)
         image_mapping = {}
 
         for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
@@ -584,7 +593,7 @@ class BookService:
 
         image_mapping = BookService.extract_images(book_id, user_id)
 
-        book = epub.read_epub(path)
+        book = _read_epub_cached(path)
 
         anchor = None
         if '#' in href:

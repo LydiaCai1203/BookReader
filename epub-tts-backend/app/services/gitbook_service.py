@@ -5,6 +5,7 @@ Limits to 500 pages max to prevent abuse.
 """
 import asyncio
 
+import json
 import os
 import re
 import uuid
@@ -159,6 +160,7 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                 is_public=False,
                 source_type="gitbook",
                 source_url=url,
+                toc_json=json.dumps(toc, ensure_ascii=False),
             )
             db.add(book)
             db.commit()

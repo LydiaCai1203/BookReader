@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index, func
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index, Text, func
 from sqlalchemy.orm import relationship
 from shared.models import Base
 
@@ -15,6 +15,7 @@ class Book(Base):
     is_public = Column(Boolean, default=False)
     source_type = Column(String, server_default="epub")  # epub / mobi / gitbook
     source_url = Column(String, nullable=True)  # GitBook source URL
+    toc_json = Column(Text, nullable=True)  # Serialized TOC
     created_at = Column(DateTime, server_default=func.now())
     last_opened_at = Column(DateTime)
 
