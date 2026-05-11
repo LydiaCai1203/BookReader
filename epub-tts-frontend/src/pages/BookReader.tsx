@@ -101,6 +101,7 @@ export default function BookReader() {
   const [playingIndex, setPlayingIndex] = useState(0);
   const [viewingIndex, setViewingIndex] = useState(0);
   const [originalSentences, setOriginalSentences] = useState<string[]>([]);
+  const [sentenceHtmls, setSentenceHtmls] = useState<string[]>([]);
   const [translatedSentences, setTranslatedSentences] = useState<string[]>([]);
   const [conceptAnnotations, setConceptAnnotations] = useState<ConceptAnnotation[]>([]);
   const [conceptStatus, setConceptStatus] = useState<"unknown" | "enriched" | "other">("unknown");
@@ -415,6 +416,7 @@ export default function BookReader() {
     translatingChapterRef.current = null;
 
     setOriginalSentences(chapterData.sentences);
+    setSentenceHtmls(chapterData.sentence_htmls ?? []);
     setTranslatedSentences([]);
     setTranslateTrigger(0);
 
@@ -1028,6 +1030,7 @@ export default function BookReader() {
               currentTime={currentTime}
               isPlaying={isPlaying}
               htmlContent={chapterData?.html}
+              sentenceHtmls={sentenceHtmls}
               bookId={bookId}
               chapterHref={currentChapterHref || undefined}
               chapterTitle={metadata?.title}

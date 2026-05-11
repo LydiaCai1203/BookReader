@@ -24,6 +24,7 @@ export interface ScrollToHighlight {
 
 interface ReaderProps {
   sentences: string[];
+  sentenceHtmls?: string[];
   translatedSentences?: string[];
   unifiedMode?: UnifiedMode;
   playBothPhase?: "original" | "translated";
@@ -62,6 +63,7 @@ const HIGHLIGHT_MARK_STYLE: Record<HighlightColor, string> = {
 
 export function Reader({
   sentences,
+  sentenceHtmls = [],
   translatedSentences = [],
   unifiedMode = "read-original",
   playBothPhase = "original",
@@ -260,9 +262,7 @@ export function Reader({
   const displayedSentences = isTranslatedMode && hasTranslation ? translatedSentences : sentences;
   const playModeSelectionSentences = isTranslatedMode && hasTranslation ? translatedSentences : sentences;
   const shouldRenderHtmlReadMode = isReadMode && !!htmlContent && !isBilingualMode && !isTranslatedMode;
-  const shouldRenderHtmlBilingual = isReadMode && !!htmlContent && isBilingualMode && hasTranslation;
-  const shouldRenderHtmlTranslated = isReadMode && !!htmlContent && isTranslatedMode && hasTranslation;
-  const shouldRenderBilingual = isBilingualMode && hasTranslation && !shouldRenderHtmlBilingual;
+  const shouldRenderBilingual = isBilingualMode && hasTranslation;
   const shouldAutoScroll = isPlayMode || !canAnnotate;
   const shouldScrollWords = isPlayMode && isPlaying;
   const activeStatusLabel = isPlayMode ? (isPlaying ? "Reading Now" : "Paused") : "Reading";
@@ -559,6 +559,11 @@ export function Reader({
   };
   const isCodeMarker = (text: string) => text.startsWith("__CODE__:");
   const getCodeContent = (text: string) => text.slice("__CODE__:".length);
+  // Extract the outer tag name from an HTML snippet to infer block type for translated rendering
+  const getBlockTag = (html: string): string => {
+    const m = html.match(/^<(h[1-6]|pre|blockquote|li)\b/i);
+    return m ? m[1].toLowerCase() : "p";
+  };
 
 
   // Scroll to highlight from notes panel
@@ -898,33 +903,6 @@ export function Reader({
               className={cn(htmlReadClasses, "max-w-3xl mx-auto pb-20")}
               dangerouslySetInnerHTML={{ __html: processedHtml }}
             />
-          ) : shouldRenderHtmlBilingual ? (
-            <div ref={bilingualReadRef} className="max-w-5xl mx-auto pb-20 grid grid-cols-1 md:grid-cols-2 gap-8" onPointerUp={canAnnotate ? handlePointerUp : undefined}>
-              <div className={htmlReadClasses} dangerouslySetInnerHTML={{ __html: processedHtml }} />
-              <div className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                {translatedSentences.map((t, i) => (
-                  isCodeMarker(t) ? (
-                    <pre key={i} className="bg-muted rounded-md p-3 overflow-x-auto text-xs font-mono whitespace-pre">{getCodeContent(t)}</pre>
-                  ) : isImageMarker(t) ? null : (
-                    <p key={i} className="my-2">{t}</p>
-                  )
-                ))}
-              </div>
-            </div>
-          ) : shouldRenderHtmlTranslated ? (
-            <div ref={readModeRef} className="max-w-3xl mx-auto pb-20 space-y-0" onPointerUp={canAnnotate ? handlePointerUp : undefined}>
-              <div className={htmlReadClasses} dangerouslySetInnerHTML={{ __html: processedHtml }} />
-              <div className="mt-8 pt-8 border-t border-border space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p className="text-xs font-mono text-primary uppercase tracking-widest mb-4">Translation</p>
-                {translatedSentences.map((t, i) => (
-                  isCodeMarker(t) ? (
-                    <pre key={i} className="bg-muted rounded-md p-3 overflow-x-auto text-xs font-mono whitespace-pre">{getCodeContent(t)}</pre>
-                  ) : isImageMarker(t) ? null : (
-                    <p key={i} className="my-2">{t}</p>
-                  )
-                ))}
-              </div>
-            </div>
           ) : shouldRenderBilingual ? (
             <div
               ref={bilingualReadRef}
@@ -975,9 +953,12 @@ export function Reader({
                               : "border-transparent text-foreground"
                       )}
                     >
-                      <p className={cn("reading-text", isSentenceActive ? "font-medium" : "font-normal")}>
-                        {renderSentence(text, index, isSentenceActive && !translatedIsActive, originalHighlights)}
-                      </p>
+                      <div className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}>
+                        {sentenceHtmls[index]
+                          ? <span dangerouslySetInnerHTML={{ __html: sentenceHtmls[index] }} />
+                          : renderSentence(text, index, isSentenceActive && !translatedIsActive, originalHighlights)
+                        }
+                      </div>
                       {originalIsReading && (
                         <div className="mt-1 flex items-center gap-2">
                           <span className="h-[1px] w-4 bg-primary/50" />
@@ -1066,23 +1047,24 @@ export function Reader({
                             : "border-transparent text-foreground"
                     )}
                   >
-                    <p className={cn("reading-text", isSentenceActive ? "font-medium" : "font-normal")}>
+                    <div className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}>
                       {(() => {
                         const anns = annotationsBySentence.get(index);
                         if (isTranslatedMode) {
-                          return sentenceHighlights.length === 0
-                            ? (anns?.length ? renderTextWithAnnotations(text, anns) : <span>{text}</span>)
-                            : renderTextWithHighlightMarks(text, sentenceHighlights, (h) => {
-                                setEditingHighlight(h);
-                                setAnnotationOpen(true);
-                              });
+                          const tag = sentenceHtmls[index] ? getBlockTag(sentenceHtmls[index]) : "p";
+                          const tagClass = tag.match(/^h[1-6]$/)
+                            ? { h1: "text-3xl font-bold text-primary my-6", h2: "text-2xl font-bold text-primary my-5", h3: "text-xl font-semibold text-primary my-4", h4: "text-lg font-semibold text-primary my-3", h5: "text-base font-semibold text-primary my-3", h6: "text-base font-medium text-primary my-2" }[tag] ?? ""
+                            : tag === "blockquote" ? "border-l-4 border-primary/50 pl-4 italic text-muted-foreground my-4"
+                            : "reading-text";
+                          if (sentenceHighlights.length > 0) {
+                            return renderTextWithHighlightMarks(text, sentenceHighlights, (h) => { setEditingHighlight(h); setAnnotationOpen(true); });
+                          }
+                          return <span className={tagClass}>{anns?.length ? renderTextWithAnnotations(text, anns) : text}</span>;
                         }
-                        if (anns?.length) {
-                          return renderTextWithAnnotations(text, anns);
-                        }
+                        if (anns?.length) return renderTextWithAnnotations(text, anns);
                         return renderSentence(text, index, isSentenceActive, sentenceHighlights);
                       })()}
-                    </p>
+                    </div>
                     {showTranslatedUnderlay && (
                       <p className={cn(
                         "reading-text mt-2 pl-3 border-l-2",

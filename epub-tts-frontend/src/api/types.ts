@@ -18,6 +18,7 @@ export interface ChapterContent {
   href: string;
   text: string;
   sentences: string[];
+  sentence_htmls?: string[];
   html?: string;  // 包含图片的 HTML 内容
 }
 

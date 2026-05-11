@@ -662,7 +662,7 @@ class BookService:
                 for el in all_elements[start_para + 1:end_para]:
                     text = ' '.join(el.get_text(separator=' ').split())
                     if text:
-                        blocks.append(text)
+                        blocks.append((text, str(el)))
             else:
                 blocks = []
         else:
@@ -680,7 +680,7 @@ class BookService:
             all_block_tags = heading_tags | leaf_block_tags | container_tags
 
             def collect_blocks(element):
-                """Walk DOM tree, collect each block-level element as one text block.
+                """Walk DOM tree, collect each block-level element as one (text, html) pair.
                 Images are collected as special markers: __IMG__:src_url
                 """
                 blocks = []
@@ -691,7 +691,7 @@ class BookService:
                 if not hasattr(element, 'name') or element.name is None:
                     text = element.get_text().strip() if hasattr(element, 'get_text') else str(element).strip()
                     if text:
-                        blocks.append(text)
+                        blocks.append((text, f"<span>{text}</span>"))
                     return blocks
 
                 tag = element.name
@@ -700,14 +700,16 @@ class BookService:
                 if tag == 'img':
                     src = element.get('src', '')
                     if src:
-                        blocks.append(f"__IMG__:{src}")
+                        marker = f"__IMG__:{src}"
+                        blocks.append((marker, str(element)))
                     return blocks
 
                 # Collect <pre> as code block marker (preserve as-is, skip translation)
                 if tag == 'pre':
                     text = element.get_text()
                     if text.strip():
-                        blocks.append(f"__CODE__:{text}")
+                        marker = f"__CODE__:{text}"
+                        blocks.append((marker, str(element)))
                     return blocks
 
                 # If this block element has block-level children, recurse into them
@@ -721,11 +723,12 @@ class BookService:
                     for img in element.find_all('img'):
                         src = img.get('src', '')
                         if src:
-                            blocks.append(f"__IMG__:{src}")
-                    # Collect text
+                            marker = f"__IMG__:{src}"
+                            blocks.append((marker, str(img)))
+                    # Collect text + html
                     text = ' '.join(element.get_text(separator=' ').split())
                     if text:
-                        blocks.append(text)
+                        blocks.append((text, str(element)))
                 else:
                     # Container or block-with-sub-blocks: recurse
                     for child in element.children:
@@ -748,36 +751,42 @@ class BookService:
                 for child in body.children:
                     blocks.extend(collect_blocks(child))
 
-        text = '\n\n'.join(b for b in blocks if not b.startswith('__IMG__:') and not b.startswith('__CODE__:'))
+        text = '\n\n'.join(t for t, _ in blocks if not t.startswith('__IMG__:') and not t.startswith('__CODE__:'))
 
         MAX_PARAGRAPH_LENGTH = 300
 
         sentences = []
-        for block in blocks:
-            if not block:
+        sentence_htmls = []
+        for block_text, block_html in blocks:
+            if not block_text:
                 continue
             # Image/code markers pass through directly
-            if block.startswith('__IMG__:') or block.startswith('__CODE__:'):
-                sentences.append(block)
+            if block_text.startswith('__IMG__:') or block_text.startswith('__CODE__:'):
+                sentences.append(block_text)
+                sentence_htmls.append(block_html)
                 continue
-            if len(block) <= MAX_PARAGRAPH_LENGTH:
-                sentences.append(block)
+            if len(block_text) <= MAX_PARAGRAPH_LENGTH:
+                sentences.append(block_text)
+                sentence_htmls.append(block_html)
             else:
-                parts = re.split(r'([。！？][）)」】\u201d\u2019"\'\]》〉]*)', block)
+                parts = re.split(r'([。！？][）)」】\u201d\u2019"\'\]》〉]*)', block_text)
                 current_sentence = ""
                 for part in parts:
                     if re.match(r'^[。！？]', part):
                         current_sentence += part
                         if current_sentence.strip():
                             sentences.append(current_sentence.strip())
+                            sentence_htmls.append(block_html)  # long block: all sub-sentences share same html
                         current_sentence = ""
                     else:
                         current_sentence += part
                 if current_sentence.strip():
                     sentences.append(current_sentence.strip())
+                    sentence_htmls.append(block_html)
 
         if not sentences and text.strip():
             sentences = [text.strip()]
+            sentence_htmls = [text.strip()]
 
         body = soup.find('body')
         target = body if body else soup
@@ -800,5 +809,6 @@ class BookService:
             "href": href,
             "text": text,
             "sentences": sentences,
+            "sentence_htmls": sentence_htmls,
             "html": html_content
         }
