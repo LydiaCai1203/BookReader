@@ -222,6 +222,32 @@ def _extract_site_title(soup: BeautifulSoup, url: str) -> str:
     return parsed.netloc
 
 
+def _detect_site_type(soup: BeautifulSoup) -> str:
+    """Use AI to detect documentation site type."""
+    # Extract relevant HTML snippets for analysis
+    nav_snippet = ""
+    for selector in ["nav", "aside", "[role='navigation']", ".sidebar", ".toc"]:
+        el = soup.select_one(selector)
+        if el:
+            nav_snippet = str(el)[:2000]  # First 2000 chars
+            break
+
+    if not nav_snippet:
+        return "unknown"
+
+    # Check for obvious patterns first (fast path)
+    if soup.find("div", class_=re.compile(r"md-sidebar--primary")):
+        return "mkdocs"
+    if soup.find("script", id="__NEXT_DATA__"):
+        return "gitbook"
+    if soup.find(class_=re.compile(r"docusaurus", re.I)):
+        return "docusaurus"
+
+    # TODO: AI call for unknown types
+    # For now, return generic
+    return "generic"
+
+
 def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
     """Extract table of contents links from the GitBook sidebar/navigation."""
     links = []

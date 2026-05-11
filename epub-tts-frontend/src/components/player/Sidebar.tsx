@@ -1,8 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import type { NavItem } from "epubjs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { Download, Loader2, FileArchive, FileAudio, MessageSquare, List, Trash2, PanelLeftClose, X } from "lucide-react";
+import { Download, Loader2, FileArchive, FileAudio, MessageSquare, List, Trash2, PanelLeftClose, X, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -47,6 +47,7 @@ export function Sidebar({
 }: SidebarProps) {
   const [tab, setTab] = useState<"toc" | "notes">("toc");
   const [downloadingType, setDownloadingType] = useState<"mp3" | "zip" | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
   const { data: allHighlights = [] } = useBookHighlights(bookId ?? null);
   const deleteHighlight = useDeleteHighlight();
@@ -124,26 +125,44 @@ export function Sidebar({
       ? currentChapterHref === item.href
       : currentBase === itemBase;
     const isVisited = !isActive && visitedChapters?.has(itemBase);
+    const hasChildren = item.subitems && item.subitems.length > 0;
+    const isExpanded = expandedItems.has(item.id);
+
     return (
       <div key={item.id} className="w-full">
-        <button
-          onClick={() => onSelectChapter(item.href)}
-          className={cn(
-            "w-full text-left px-3 py-2 text-sm font-mono transition-colors border-l-2 hover:bg-primary/5 hover:text-primary",
-            isActive
-              ? "border-primary text-primary bg-primary/10"
-              : isVisited
-                ? "border-transparent text-foreground/70"
-                : "border-transparent text-muted-foreground"
+        <div className="flex items-center w-full">
+          {hasChildren && (
+            <button
+              onClick={() => setExpandedItems(prev => {
+                const next = new Set(prev);
+                next.has(item.id) ? next.delete(item.id) : next.add(item.id);
+                return next;
+              })}
+              className="shrink-0 p-1 text-muted-foreground hover:text-primary"
+              style={{ marginLeft: `${(depth + 1) * 12}px` }}
+            >
+              <ChevronRight className={cn("w-3 h-3 transition-transform", isExpanded && "rotate-90")} />
+            </button>
           )}
-          style={{ paddingLeft: `${(depth + 1) * 12}px` }}
-        >
-          <span className="flex items-center gap-1.5">
-            {isVisited && <span className="w-1.5 h-1.5 rounded-full bg-primary/50 shrink-0" />}
-            <span className="line-clamp-1">{item.label}</span>
-          </span>
-        </button>
-        {item.subitems?.map(sub => renderItem(sub, depth + 1))}
+          <button
+            onClick={() => onSelectChapter(item.href)}
+            className={cn(
+              "flex-1 text-left py-2 text-sm font-mono transition-colors border-l-2 hover:bg-primary/5 hover:text-primary",
+              isActive
+                ? "border-primary text-primary bg-primary/10"
+                : isVisited
+                  ? "border-transparent text-foreground/70"
+                  : "border-transparent text-muted-foreground"
+            )}
+            style={{ paddingLeft: hasChildren ? "4px" : `${(depth + 1) * 12 + 16}px`, paddingRight: "12px" }}
+          >
+            <span className="flex items-center gap-1.5">
+              {isVisited && <span className="w-1.5 h-1.5 rounded-full bg-primary/50 shrink-0" />}
+              <span className="line-clamp-1">{item.label}</span>
+            </span>
+          </button>
+        </div>
+        {hasChildren && isExpanded && item.subitems!.map(sub => renderItem(sub, depth + 1))}
       </div>
     );
   };
