@@ -464,6 +464,7 @@ def _build_epub(
 
     # Create chapters
     epub_chapters = []
+    src_url_to_epub_ch = {}
     spine = ["nav"]
 
     for i, ch in enumerate(chapters):
@@ -542,28 +543,32 @@ def _build_epub(
 
         book.add_item(epub_ch)
         epub_chapters.append(epub_ch)
+        src_url_to_epub_ch[ch.get("source_url", "")] = epub_ch
         spine.append(epub_ch)
 
     if not epub_chapters:
         raise GitBookImportError("No valid content could be extracted from the GitBook")
 
     # Table of contents — use nested toc_tree if available
-    url_to_epub_ch = {ch.title: ch for ch in epub_chapters}
-    # Also build a url→epub_ch map using source_url stored in chapters list
-    src_url_to_epub_ch = {}
-    for orig_ch, epub_ch in zip(chapters, epub_chapters):
-        src_url_to_epub_ch[orig_ch.get("source_url", "")] = epub_ch
-
     def _build_toc_entry(node: dict):
         ch = src_url_to_epub_ch.get(node["url"])
-        link = epub.Link(ch.file_name, node["title"], ch.file_name.replace(".xhtml", "")) if ch else None
         children = [e for sub in node.get("subitems", []) for e in [_build_toc_entry(sub)] if e]
-        if children:
-            return (link, children) if link else tuple(children)
-        return link
+        if ch:
+            link = epub.Link(ch.file_name, node["title"], ch.file_name.replace(".xhtml", ""))
+            return (link, children) if children else link
+        # No page for this node — promote children directly
+        return children if children else None
 
     if toc_tree:
-        toc_entries = [e for node in toc_tree for e in [_build_toc_entry(node)] if e]
+        toc_entries = []
+        for node in toc_tree:
+            entry = _build_toc_entry(node)
+            if entry is None:
+                continue
+            if isinstance(entry, list):
+                toc_entries.extend(entry)
+            else:
+                toc_entries.append(entry)
         book.toc = toc_entries
     else:
         book.toc = [
