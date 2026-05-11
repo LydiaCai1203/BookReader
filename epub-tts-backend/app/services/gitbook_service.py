@@ -43,7 +43,7 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
     try:
         async with httpx.AsyncClient(
             follow_redirects=True,
-            timeout=REQUEST_TIMEOUT,
+            timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=10.0),
             headers={"User-Agent": "Mozilla/5.0 (compatible; BookReader/1.0)"},
         ) as client:
             # Fetch the main page to extract TOC and title
@@ -60,8 +60,6 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
             if not toc_links:
                 toc_links = [{"title": site_title, "url": url}]
 
-            logger.info(f"[TOC TREE DEBUG] len={len(toc_links)}, first={toc_links[0] if toc_links else None}")
-
             def _flatten_toc(items: list[dict]) -> list[dict]:
                 flat = []
                 for item in items:
@@ -77,10 +75,8 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                 )
                 flat_links = flat_links[:MAX_PAGES]
 
-            # Fetch all pages and download images (concurrently, limited)
+            # Fetch all pages
             chapters = []
-            all_images: list[epub.EpubImage] = []
-            seen_images: dict[str, str] = {}  # url -> epub internal path
 
             total_pages = len(flat_links)
             CONCURRENCY = 5
@@ -121,18 +117,8 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
             if on_progress:
                 on_progress(current=total_pages, total=total_pages, title=site_title)
 
-            # Process images for fetched pages (concurrently)
-            async def process_page_images(page: dict) -> dict:
-                content, page_images = await _process_images(
-                    page["content"], client, page["source_url"], seen_images
-                )
-                page["content"] = content
-                return page, page_images
-
-            img_tasks = [process_page_images(page) for page in fetched]
-            img_results = await asyncio.gather(*img_tasks)
-
-            for page, page_images in img_results:
+            # Keep original image URLs (no download needed for online reading)
+            for page in fetched:
                 chapters.append({
                     "title": page["title"],
                     "content": page["content"],
@@ -150,7 +136,6 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                 chapters=chapters,
                 output_path=epub_path,
                 source_url=url,
-                images=all_images,
                 toc_tree=toc_links,
             )
 
@@ -462,7 +447,6 @@ def _build_epub(
     chapters: list[dict],
     output_path: str,
     source_url: str,
-    images: list[epub.EpubImage] | None = None,
     toc_tree: list[dict] | None = None,
 ) -> None:
     """Build an EPUB file from extracted GitBook chapters."""
@@ -615,11 +599,6 @@ def _build_epub(
     # Spine
     book.spine = spine
 
-    # Add images
-    if images:
-        for img in images:
-            book.add_item(img)
-
     epub.write_epub(output_path, book)
     logger.info(f"[GitBook] EPUB written to {output_path} ({len(epub_chapters)} chapters, {len(images or [])} images)")
 
@@ -670,7 +649,7 @@ async def _process_images(
             continue
 
         try:
-            img_resp = await client.get(abs_url, timeout=IMAGE_TIMEOUT)
+            img_resp = await client.get(abs_url, timeout=httpx.Timeout(IMAGE_TIMEOUT, connect=5.0))
             img_resp.raise_for_status()
             img_data = img_resp.content
             if not img_data:

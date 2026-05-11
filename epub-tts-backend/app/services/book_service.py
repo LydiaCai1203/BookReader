@@ -238,7 +238,6 @@ class BookService:
 
             try:
                 if hasattr(book, 'toc') and book.toc:
-                    logger.info(f"[TOC DEBUG] raw toc type={type(book.toc)}, len={len(book.toc)}, first={repr(book.toc[0]) if book.toc else None}")
                     for item in book.toc:
                         try:
                             parsed = parse_nav_map(item)
