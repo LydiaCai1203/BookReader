@@ -712,6 +712,14 @@ class BookService:
                         blocks.append((marker, str(element)))
                     return blocks
 
+                # Inline formatting elements: treat as leaf, preserve HTML
+                inline_tags = {'code', 'strong', 'b', 'em', 'i', 'mark', 'kbd', 'samp'}
+                if tag in inline_tags:
+                    text = element.get_text(separator=' ').strip()
+                    if text:
+                        blocks.append((text, str(element)))
+                    return blocks
+
                 # If this block element has block-level children, recurse into them
                 has_block_children = any(
                     hasattr(c, 'name') and c.name in all_block_tags
