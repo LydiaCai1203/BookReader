@@ -51,12 +51,13 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
             resp = await client.get(url)
             resp.raise_for_status()
             html = resp.text
+            actual_url = str(resp.url)  # follow redirects
 
             soup = BeautifulSoup(html, "html.parser")
-            site_title = _extract_site_title(soup, url)
+            site_title = _extract_site_title(soup, actual_url)
 
             # Try to extract TOC links from sidebar / navigation
-            toc_links = _extract_toc_links(soup, url)
+            toc_links = _extract_toc_links(soup, actual_url)
             if not toc_links:
                 toc_links = [{"title": site_title, "url": url}]
 
@@ -93,7 +94,8 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                         page_resp = await client.get(page_url)
                         page_resp.raise_for_status()
                         page_html = page_resp.text
-                        content = _extract_page_content(page_html, page_url)
+                        actual_page_url = str(page_resp.url)
+                        content = _extract_page_content(page_html, actual_page_url)
                         if content.strip():
                             return {
                                 "index": i,
@@ -438,13 +440,8 @@ def _extract_page_content(html: str, page_url: str = "") -> str:
         sidebar.decompose()
 
     # Remove GitBook legacy search result placeholders
-    for el in content_el.find_all(class_=re.compile(r"search-noresults|search-results|no-results", re.I)):
+    for el in content_el.find_all(class_=re.compile(r"search-noresults|search-results", re.I)):
         el.decompose()
-    # Also remove by text pattern as fallback
-    for el in content_el.find_all(string=re.compile(r'results matching ""')):
-        parent = el.parent
-        if parent:
-            parent.decompose()
 
     # Remove MkDocs / ReadTheDocs / GitBook decorative elements
     # 1. GitHub edit buttons, source links
