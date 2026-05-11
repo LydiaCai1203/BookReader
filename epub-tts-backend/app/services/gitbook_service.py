@@ -124,7 +124,6 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                     "content": page["content"],
                     "source_url": page["source_url"],
                 })
-                all_images.extend(page_images)
 
             if not chapters:
                 raise GitBookImportError("No content could be extracted from the GitBook")
