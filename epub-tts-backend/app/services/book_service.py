@@ -764,7 +764,21 @@ class BookService:
             sentences = [text.strip()]
 
         body = soup.find('body')
-        html_content = str(body) if body else str(soup)
+        target = body if body else soup
+        for svg in target.find_all('svg'):
+            vb = svg.get('viewBox', '')
+            parts = vb.split()
+            if len(parts) == 4:
+                try:
+                    if float(parts[2]) <= 48 and float(parts[3]) <= 48:
+                        svg.decompose()
+                        continue
+                except ValueError:
+                    pass
+            parent = svg.parent
+            if parent and parent.name in ('a', 'button'):
+                svg.decompose()
+        html_content = str(target)
 
         return {
             "href": href,
