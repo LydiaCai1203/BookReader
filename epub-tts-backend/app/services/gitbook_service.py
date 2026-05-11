@@ -414,10 +414,10 @@ def _extract_page_content(html: str, page_url: str = "") -> str:
     # Try to find the main content area — prefer the most specific element
     content_selectors = [
         soup.find("article"),
-        soup.find(class_=re.compile(r"markdown-body|md-typeset|page-body|page-content|main-content", re.I)),
+        soup.find(class_=re.compile(r"markdown-body|md-typeset|page-body|page-content|main-content|page-wrapper", re.I)),
         soup.find("main"),
         soup.find(attrs={"role": "main"}),
-        soup.find(class_=re.compile(r"content", re.I)),
+        soup.find(class_=re.compile(r"^content$|^page$", re.I)),
     ]
 
     content_el = None
