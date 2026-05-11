@@ -302,6 +302,7 @@ async def get_book(
     except HTTPException as e:
         raise e
     except Exception as e:
+        logger.exception(f"[get_book] parse_metadata failed: book_id={book_id}")
         raise HTTPException(status_code=500, detail=f"Failed to parse metadata: {str(e)}")
 
     # Use cached TOC from DB if available, otherwise parse from EPUB
