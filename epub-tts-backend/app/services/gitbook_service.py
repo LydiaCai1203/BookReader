@@ -4,7 +4,7 @@ Handles both modern (Next.js SPA) and legacy (static HTML) GitBook sites.
 Limits to 500 pages max to prevent abuse.
 """
 import asyncio
-import hashlib
+
 import os
 import re
 import uuid
@@ -22,7 +22,6 @@ from shared.models import Book
 
 MAX_PAGES = 500
 REQUEST_TIMEOUT = 30.0
-IMAGE_TIMEOUT = 15.0
 
 
 class GitBookImportError(Exception):
@@ -599,99 +598,7 @@ def _build_epub(
     book.spine = spine
 
     epub.write_epub(output_path, book)
-    logger.info(f"[GitBook] EPUB written to {output_path} ({len(epub_chapters)} chapters, {len(images or [])} images)")
+    logger.info(f"[GitBook] EPUB written to {output_path} ({len(epub_chapters)} chapters)")
 
 
-# Map common content-type to file extension
-_MIME_TO_EXT = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-    "image/svg+xml": ".svg",
-}
 
-
-async def _process_images(
-    html: str,
-    client: httpx.AsyncClient,
-    page_url: str,
-    seen_images: dict[str, str],
-) -> tuple[str, list[epub.EpubImage]]:
-    """Download images referenced in HTML and rewrite src to EPUB-internal paths.
-
-    Args:
-        html: page HTML content
-        client: httpx client for downloading
-        page_url: URL of the page (for resolving relative src)
-        seen_images: shared dict mapping image URL -> epub path (deduplication across pages)
-
-    Returns:
-        (rewritten_html, list_of_new_EpubImage_items)
-    """
-    soup = BeautifulSoup(html, "html.parser")
-    new_images: list[epub.EpubImage] = []
-
-    for img_tag in soup.find_all("img", src=True):
-        src = img_tag["src"]
-
-        # Skip data URIs
-        if src.startswith("data:"):
-            continue
-
-        # Resolve relative URLs
-        abs_url = urljoin(page_url, src)
-
-        # Already downloaded in a previous page
-        if abs_url in seen_images:
-            img_tag["src"] = seen_images[abs_url]
-            continue
-
-        try:
-            img_resp = await client.get(abs_url, timeout=httpx.Timeout(IMAGE_TIMEOUT, connect=5.0))
-            img_resp.raise_for_status()
-            img_data = img_resp.content
-            if not img_data:
-                raise ValueError("empty response")
-
-            # Determine file extension from content-type
-            content_type = img_resp.headers.get("content-type", "").split(";")[0].strip().lower()
-            ext = _MIME_TO_EXT.get(content_type)
-            if not ext:
-                # Try to guess from URL path
-                url_path = urlparse(abs_url).path
-                for known_ext in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"):
-                    if url_path.lower().endswith(known_ext):
-                        ext = known_ext
-                        break
-                if not ext:
-                    ext = ".jpg"  # fallback
-
-            # Generate a unique filename based on URL hash
-            url_hash = hashlib.md5(abs_url.encode()).hexdigest()[:12]
-            epub_path = f"images/{url_hash}{ext}"
-
-            # Determine MIME type for EPUB
-            media_type = content_type if content_type in _MIME_TO_EXT else f"image/{ext.lstrip('.')}"
-            if media_type == "image/jpg":
-                media_type = "image/jpeg"
-
-            epub_img = epub.EpubImage()
-            epub_img.file_name = epub_path
-            epub_img.media_type = media_type
-            epub_img.content = img_data
-
-            new_images.append(epub_img)
-            seen_images[abs_url] = epub_path
-            img_tag["src"] = epub_path
-
-        except Exception as e:
-            logger.debug(f"[GitBook] Failed to download image {abs_url}: {e}")
-            # Keep the img tag with alt text visible, remove broken src
-            alt = img_tag.get("alt", "")
-            if alt:
-                img_tag.replace_with(f"[{alt}]")
-            else:
-                img_tag.decompose()
-
-    return str(soup), new_images
