@@ -435,7 +435,7 @@ def _extract_page_content(html: str, page_url: str = "") -> str:
 
     # Remove sidebar/navigation elements within content
     for sidebar in content_el.find_all(
-        class_=re.compile(r"sidebar|side-bar|navigation|nav-", re.I)
+        class_=re.compile(r"sidebar|side-bar|nav-sidebar|nav-menu", re.I)
     ):
         sidebar.decompose()
 
