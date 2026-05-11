@@ -524,30 +524,7 @@ export function Reader({
     return htmlContent.replace(/src="\/images\//g, `src="${API_BASE}/images/`);
   }, [htmlContent]);
 
-  const htmlReadClasses = "html-read-mode " +
-    "[&_h1]:font-bold [&_h1]:text-primary [&_h1]:text-3xl [&_h1]:my-6 " +
-    "[&_h2]:font-bold [&_h2]:text-primary [&_h2]:text-2xl [&_h2]:my-5 " +
-    "[&_h3]:font-semibold [&_h3]:text-primary [&_h3]:text-xl [&_h3]:my-4 " +
-    "[&_h4]:font-semibold [&_h4]:text-primary [&_h4]:text-lg [&_h4]:my-3 " +
-    "[&_h5]:font-semibold [&_h5]:text-primary [&_h5]:text-base [&_h5]:my-3 " +
-    "[&_h6]:font-medium [&_h6]:text-primary [&_h6]:text-base [&_h6]:my-2 " +
-    "[&_p]:text-foreground [&_p]:leading-relaxed [&_p]:my-4 " +
-    "[&_strong]:font-bold [&_b]:font-bold " +
-    "[&_em]:italic [&_i]:italic " +
-    "[&_img]:rounded-lg [&_img]:shadow-lg [&_img]:mx-auto [&_img]:my-6 [&_img]:max-w-full " +
-    "[&_a]:text-primary [&_a]:underline-offset-2 hover:[&_a]:underline " +
-    "[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 " +
-    "[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 " +
-    "[&_li]:my-1 [&_li]:text-foreground " +
-    "[&_blockquote]:border-l-4 [&_blockquote]:border-primary/50 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:my-4 [&_blockquote]:text-muted-foreground " +
-    "[&_pre]:bg-muted [&_pre]:rounded-md [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:my-4 [&_pre]:text-sm [&_pre]:font-mono [&_pre]:whitespace-pre " +
-    "[&_code]:bg-muted [&_code]:rounded [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:font-mono " +
-    "[&_pre_code]:bg-transparent [&_pre_code]:p-0 " +
-    "[&_table]:w-full [&_table]:border-collapse [&_table]:my-4 " +
-    "[&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:bg-muted [&_th]:font-semibold [&_th]:text-left " +
-    "[&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 " +
-    "[&_hr]:border-border [&_hr]:my-6 " +
-    "[&_svg]:max-w-full [&_svg]:h-auto";
+  const htmlReadClasses = "html-read-mode";
 
   // Helper: check if a sentence is an image marker from backend
   const isImageMarker = (text: string) => text.startsWith("__IMG__:");
@@ -559,11 +536,6 @@ export function Reader({
   };
   const isCodeMarker = (text: string) => text.startsWith("__CODE__:");
   const getCodeContent = (text: string) => text.slice("__CODE__:".length);
-  // Extract the outer tag name from an HTML snippet to infer block type for translated rendering
-  const getBlockTag = (html: string): string => {
-    const m = html.match(/^<(h[1-6]|pre|blockquote|li)\b/i);
-    return m ? m[1].toLowerCase() : "p";
-  };
 
 
   // Scroll to highlight from notes panel
@@ -953,11 +925,10 @@ export function Reader({
                               : "border-transparent text-foreground"
                       )}
                     >
-                      <div className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}>
-                        {sentenceHtmls[index]
-                          ? <div dangerouslySetInnerHTML={{ __html: sentenceHtmls[index] }} />
-                          : renderSentence(text, index, isSentenceActive && !translatedIsActive, originalHighlights)
-                        }
+                      <div className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}
+                        dangerouslySetInnerHTML={sentenceHtmls[index] ? { __html: sentenceHtmls[index] } : undefined}
+                      >
+                        {!sentenceHtmls[index] && renderSentence(text, index, isSentenceActive && !translatedIsActive, originalHighlights)}
                       </div>
                       {originalIsReading && (
                         <div className="mt-1 flex items-center gap-2">
@@ -1051,15 +1022,10 @@ export function Reader({
                       {(() => {
                         const anns = annotationsBySentence.get(index);
                         if (isTranslatedMode) {
-                          const tag = sentenceHtmls[index] ? getBlockTag(sentenceHtmls[index]) : "p";
-                          const tagClass = tag.match(/^h[1-6]$/)
-                            ? { h1: "text-3xl font-bold text-primary my-6", h2: "text-2xl font-bold text-primary my-5", h3: "text-xl font-semibold text-primary my-4", h4: "text-lg font-semibold text-primary my-3", h5: "text-base font-semibold text-primary my-3", h6: "text-base font-medium text-primary my-2" }[tag] ?? ""
-                            : tag === "blockquote" ? "border-l-4 border-primary/50 pl-4 italic text-muted-foreground my-4"
-                            : "reading-text";
                           if (sentenceHighlights.length > 0) {
                             return renderTextWithHighlightMarks(text, sentenceHighlights, (h) => { setEditingHighlight(h); setAnnotationOpen(true); });
                           }
-                          return <span className={tagClass}>{anns?.length ? renderTextWithAnnotations(text, anns) : text}</span>;
+                          return <span className="reading-text">{anns?.length ? renderTextWithAnnotations(text, anns) : text}</span>;
                         }
                         if (anns?.length) return renderTextWithAnnotations(text, anns);
                         return renderSentence(text, index, isSentenceActive, sentenceHighlights);

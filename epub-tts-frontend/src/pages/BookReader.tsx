@@ -650,8 +650,13 @@ export default function BookReader() {
       } else {
         if (isBilingualMode) setPlayBothPhase("original");
         const next = playingIndex + 1;
-        setPlayingIndex(next);
-        setViewingIndex(next);
+        if (next >= originalSentences.length) {
+          setIsPlaying(false);
+          playingSentenceRef.current = -1;
+        } else {
+          setPlayingIndex(next);
+          setViewingIndex(next);
+        }
       }
       return;
     }

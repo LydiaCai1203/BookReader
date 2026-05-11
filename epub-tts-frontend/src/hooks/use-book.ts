@@ -12,7 +12,7 @@ export function useUploadBook() {
 // Chapter Hook
 export function useChapter(bookId: string | null, href: string | null) {
   return useQuery({
-    queryKey: ["chapter", bookId, href],
+    queryKey: ["chapter", "v2", bookId, href],
     queryFn: () => {
        if (!bookId || !href) throw new Error("Missing params");
        return bookService.getChapter(bookId, href);
