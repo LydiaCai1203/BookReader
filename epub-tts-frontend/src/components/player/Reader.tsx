@@ -925,11 +925,16 @@ export function Reader({
                               : "border-transparent text-foreground"
                       )}
                     >
-                      <div className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}
-                        dangerouslySetInnerHTML={sentenceHtmls[index] ? { __html: sentenceHtmls[index] } : undefined}
-                      >
-                        {!sentenceHtmls[index] && renderSentence(text, index, isSentenceActive && !translatedIsActive, originalHighlights)}
-                      </div>
+                      {sentenceHtmls[index] ? (
+                        <div
+                          className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}
+                          dangerouslySetInnerHTML={{ __html: sentenceHtmls[index] }}
+                        />
+                      ) : (
+                        <div className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}>
+                          {renderSentence(text, index, isSentenceActive && !translatedIsActive, originalHighlights)}
+                        </div>
+                      )}
                       {originalIsReading && (
                         <div className="mt-1 flex items-center gap-2">
                           <span className="h-[1px] w-4 bg-primary/50" />
