@@ -309,6 +309,7 @@ def _extract_mkdocs_toc(nav_el, base_url: str, base_domain: str) -> list[dict]:
         items = []
         for li in ul.find_all("li", recursive=False):
             a_tag = li.find("a", recursive=False)
+            label_tag = li.find("label", recursive=False)
             item = None
 
             if a_tag:
@@ -335,9 +336,13 @@ def _extract_mkdocs_toc(nav_el, base_url: str, base_domain: str) -> list[dict]:
             if item:
                 item["subitems"] = children
                 items.append(item)
-            else:
-                # Section label with no direct link — promote children to this level
-                items.extend(children)
+            elif children:
+                # Section label with no direct link — create virtual parent node
+                section_title = label_tag.get_text().strip() if label_tag else ""
+                if section_title:
+                    items.append({"title": section_title, "url": children[0]["url"], "subitems": children})
+                else:
+                    items.extend(children)
 
         return items
 
