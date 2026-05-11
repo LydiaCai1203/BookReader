@@ -58,8 +58,9 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
             # Try to extract TOC links from sidebar / navigation
             toc_links = _extract_toc_links(soup, url)
             if not toc_links:
-                # Single-page GitBook or unrecognized structure
                 toc_links = [{"title": site_title, "url": url}]
+
+            logger.info(f"[TOC TREE DEBUG] len={len(toc_links)}, first={toc_links[0] if toc_links else None}")
 
             def _flatten_toc(items: list[dict]) -> list[dict]:
                 flat = []
