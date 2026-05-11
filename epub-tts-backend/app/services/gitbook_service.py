@@ -103,6 +103,8 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                                 "content": content,
                                 "source_url": page_url,
                             }
+                        else:
+                            logger.warning(f"[GitBook] Empty content for {page_url} (actual: {actual_page_url})")
                     except Exception as e:
                         logger.warning(f"[GitBook] Failed to fetch {page_url}: {e}")
                     return None
@@ -438,10 +440,6 @@ def _extract_page_content(html: str, page_url: str = "") -> str:
         class_=re.compile(r"sidebar|side-bar|nav-sidebar|nav-menu", re.I)
     ):
         sidebar.decompose()
-
-    # Remove GitBook legacy search result placeholders
-    for el in content_el.find_all(class_=re.compile(r"search-noresults|search-results", re.I)):
-        el.decompose()
 
     # Remove MkDocs / ReadTheDocs / GitBook decorative elements
     # 1. GitHub edit buttons, source links
