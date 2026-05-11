@@ -93,7 +93,7 @@ async def import_gitbook(url: str, user_id: str, on_progress: Optional[Callable]
                         page_resp = await client.get(page_url)
                         page_resp.raise_for_status()
                         page_html = page_resp.text
-                        content = _extract_page_content(page_html)
+                        content = _extract_page_content(page_html, page_url)
                         if content.strip():
                             return {
                                 "index": i,
@@ -261,29 +261,7 @@ def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
     for nav_el in nav_selectors:
         if nav_el is None:
             continue
-        for a in nav_el.find_all("a", href=True):
-            href = a["href"]
-            # Skip anchor-only links
-            if href.startswith("#"):
-                continue
-            full_url = urljoin(base_url, href)
-            parsed = urlparse(full_url)
-
-            # Only same-domain links, skip external
-            if parsed.netloc != base_domain:
-                continue
-            # Normalize: remove fragment
-            clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-            if clean_url in seen_urls:
-                continue
-
-            title = a.get_text().strip()
-            if not title:
-                continue
-
-            seen_urls.add(clean_url)
-            links.append({"title": title, "url": clean_url})
-
+        links = _extract_nested_toc(nav_el, base_url, base_domain)
         if links:
             break  # Use first nav element that yields results
 
@@ -302,6 +280,45 @@ def _extract_toc_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
                 pass
 
     return links
+
+
+def _extract_nested_toc(nav_el, base_url: str, base_domain: str) -> list[dict]:
+    """Generic nested TOC extractor: walks ul/li/a structure recursively."""
+    seen_urls: set[str] = set()
+
+    def _walk(parent) -> list[dict]:
+        items = []
+        for li in parent.find_all("li", recursive=False):
+            a_tag = li.find("a", href=True, recursive=False) or li.find("a", href=True)
+            item = None
+            if a_tag:
+                href = a_tag["href"]
+                if not href.startswith("#"):
+                    full_url = urljoin(base_url, href)
+                    parsed = urlparse(full_url)
+                    if parsed.netloc == base_domain:
+                        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                        title = a_tag.get_text().strip()
+                        if title and clean_url not in seen_urls:
+                            seen_urls.add(clean_url)
+                            item = {"title": title, "url": clean_url, "subitems": []}
+
+            children = []
+            sub_ul = li.find("ul", recursive=False)
+            if sub_ul:
+                children = _walk(sub_ul)
+
+            if item:
+                item["subitems"] = children
+                items.append(item)
+            elif children:
+                items.extend(children)
+        return items
+
+    ul = nav_el.find("ul")
+    if not ul:
+        return []
+    return _walk(ul)
 
 
 def _extract_mkdocs_toc(nav_el, base_url: str, base_domain: str) -> list[dict]:
@@ -384,7 +401,7 @@ def _extract_pages_from_next_data(data: dict, base_url: str) -> list[dict]:
     return pages
 
 
-def _extract_page_content(html: str) -> str:
+def _extract_page_content(html: str, page_url: str = "") -> str:
     """Extract the main content from a GitBook page as clean HTML."""
     soup = BeautifulSoup(html, "html.parser")
 
@@ -437,6 +454,13 @@ def _extract_page_content(html: str) -> str:
         class_=re.compile(r"gitbook-drawing|copy-button|clipboard", re.I)
     ):
         el.decompose()
+
+    # Rewrite relative image URLs to absolute
+    if page_url:
+        for img in content_el.find_all("img", src=True):
+            src = img["src"]
+            if not src.startswith(("http://", "https://", "data:")):
+                img["src"] = urljoin(page_url, src)
 
     # Return the inner HTML (children), stripping the outer wrapper tag itself
     return content_el.decode_contents()

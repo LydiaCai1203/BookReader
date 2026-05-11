@@ -45,6 +45,7 @@ interface ReaderProps {
   onSentenceChange?: (index: number) => void;
   onDoubleClick?: () => void;
   immersiveMode?: boolean;
+  onChapterLink?: (href: string) => void;
 }
 
 const HIGHLIGHT_COLOR_MAP: Record<HighlightColor, string> = {
@@ -84,6 +85,7 @@ export function Reader({
   onSentenceChange,
   onDoubleClick,
   immersiveMode = false,
+  onChapterLink,
 }: ReaderProps) {
   const [interactionMode, contentMode] = unifiedMode.split("-") as [InteractionMode, ContentMode];
   const isPlayMode = interactionMode === "play";
@@ -872,6 +874,14 @@ export function Reader({
             <div
               ref={readModeRef}
               onPointerUp={canAnnotate ? handlePointerUp : undefined}
+              onClick={onChapterLink ? (e) => {
+                const a = (e.target as HTMLElement).closest("a");
+                if (!a) return;
+                const href = a.getAttribute("href");
+                if (!href || href.startsWith("http") || href.startsWith("#")) return;
+                e.preventDefault();
+                onChapterLink(href);
+              } : undefined}
               className={cn(htmlReadClasses, "max-w-3xl mx-auto pb-20")}
               dangerouslySetInnerHTML={{ __html: processedHtml }}
             />

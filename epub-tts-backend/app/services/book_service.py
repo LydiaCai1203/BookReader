@@ -634,6 +634,9 @@ class BookService:
                 if base_name in image_mapping:
                     server_url = image_mapping[base_name]
 
+            if not server_url and src.startswith(('http://', 'https://')):
+                server_url = src
+
             if server_url:
                 img['src'] = server_url
                 img['style'] = img.get('style', '') + '; max-width: 100%; height: auto;'

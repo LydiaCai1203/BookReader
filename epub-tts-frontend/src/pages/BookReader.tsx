@@ -1051,6 +1051,7 @@ export default function BookReader() {
               onSentenceChange={handleSentenceChange}
               onDoubleClick={() => setImmersiveMode((v) => !v)}
               immersiveMode={immersiveMode}
+              onChapterLink={setCurrentChapterHref}
             />
           )}
         </div>
@@ -1122,6 +1123,7 @@ export default function BookReader() {
                   onSentenceChange={handleSentenceChange}
                   onDoubleClick={() => setImmersiveMode((v) => !v)}
                   immersiveMode={immersiveMode}
+                  onChapterLink={setCurrentChapterHref}
                 />
               )}
             </div>
