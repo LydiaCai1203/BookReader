@@ -874,12 +874,13 @@ export function Reader({
             <div
               ref={readModeRef}
               onPointerUp={canAnnotate ? handlePointerUp : undefined}
-              onClick={onChapterLink ? (e) => {
+              onClickCapture={onChapterLink ? (e) => {
                 const a = (e.target as HTMLElement).closest("a");
                 if (!a) return;
                 const href = a.getAttribute("href");
                 if (!href || href.startsWith("http") || href.startsWith("#")) return;
                 e.preventDefault();
+                e.stopPropagation();
                 onChapterLink(href);
               } : undefined}
               className={cn(htmlReadClasses, "max-w-3xl mx-auto pb-20")}
