@@ -660,6 +660,11 @@ class BookService:
 
                 blocks = []
                 for el in all_elements[start_para + 1:end_para]:
+                    if el.name == 'pre':
+                        code_text = el.get_text()
+                        if code_text.strip():
+                            blocks.append((f"__CODE__:{code_text}", str(el)))
+                        continue
                     text = ' '.join(el.get_text(separator=' ').split())
                     if text:
                         blocks.append((text, str(el)))
@@ -779,18 +784,20 @@ class BookService:
             else:
                 parts = re.split(r'([。！？][）)」】\u201d\u2019"\'\]》〉]*)', block_text)
                 current_sentence = ""
+                is_first_sub = True
                 for part in parts:
                     if re.match(r'^[。！？]', part):
                         current_sentence += part
                         if current_sentence.strip():
                             sentences.append(current_sentence.strip())
-                            sentence_htmls.append(block_html)  # long block: all sub-sentences share same html
+                            sentence_htmls.append(block_html if is_first_sub else "")
+                            is_first_sub = False
                         current_sentence = ""
                     else:
                         current_sentence += part
                 if current_sentence.strip():
                     sentences.append(current_sentence.strip())
-                    sentence_htmls.append(block_html)
+                    sentence_htmls.append(block_html if is_first_sub else "")
 
         if not sentences and text.strip():
             sentences = [text.strip()]

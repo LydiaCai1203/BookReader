@@ -1108,9 +1108,8 @@ export default function BookReader() {
                   currentTime={currentTime}
                   isPlaying={isPlaying}
                   htmlContent={chapterData?.html}
+                  sentenceHtmls={sentenceHtmls}
                   bookId={bookId}
-                  chapterHref={currentChapterHref || undefined}
-                  chapterTitle={metadata?.title}
                   highlights={highlights}
                   scrollToHighlight={scrollTarget}
                   annotations={conceptAnnotations}
