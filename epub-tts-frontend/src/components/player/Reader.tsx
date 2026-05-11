@@ -955,7 +955,7 @@ export function Reader({
                     >
                       <div className={cn(htmlReadClasses, isSentenceActive ? "font-medium" : "font-normal")}>
                         {sentenceHtmls[index]
-                          ? <span dangerouslySetInnerHTML={{ __html: sentenceHtmls[index] }} />
+                          ? <div dangerouslySetInnerHTML={{ __html: sentenceHtmls[index] }} />
                           : renderSentence(text, index, isSentenceActive && !translatedIsActive, originalHighlights)
                         }
                       </div>
