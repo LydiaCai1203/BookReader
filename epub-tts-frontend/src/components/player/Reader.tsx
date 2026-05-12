@@ -356,6 +356,13 @@ export function Reader({
   const [editingHighlight, setEditingHighlight] = useState<Highlight | null>(null);
   const [pendingSelection, setPendingSelection] = useState<SelectionInfo | null>(null);
   const [defaultAnnotationColor, setDefaultAnnotationColor] = useState<HighlightColor>("yellow");
+  const [conceptPopup, setConceptPopup] = useState<{
+    term: string;
+    definition: string;
+    parentTerm?: string;
+    totalOccurrences?: number;
+    badgeRect: DOMRect;
+  } | null>(null);
 
   const createHighlight = useCreateHighlight();
   const updateHighlight = useUpdateHighlight();
@@ -874,6 +881,27 @@ export function Reader({
             <div
               ref={readModeRef}
               onPointerUp={canAnnotate ? handlePointerUp : undefined}
+              onClick={(e) => {
+                // Handle concept badge clicks
+                const badge = (e.target as HTMLElement).closest("[data-concept-badge]") as HTMLElement | null;
+                if (badge) {
+                  e.stopPropagation();
+                  const term = badge.dataset.conceptTerm;
+                  const definition = badge.dataset.conceptDefinition;
+                  if (term && definition) {
+                    setConceptPopup({
+                      term,
+                      definition,
+                      parentTerm: badge.dataset.conceptParent,
+                      totalOccurrences: badge.dataset.conceptOccurrences ? Number(badge.dataset.conceptOccurrences) : undefined,
+                      badgeRect: badge.getBoundingClientRect(),
+                    });
+                  }
+                  return;
+                }
+                // Close popup when clicking elsewhere
+                if (conceptPopup) setConceptPopup(null);
+              }}
               onClickCapture={onChapterLink ? (e) => {
                 const a = (e.target as HTMLElement).closest("a");
                 if (!a) return;
@@ -1104,6 +1132,41 @@ export function Reader({
           setPendingSelection(null);
         }}
       />
+
+      {/* Concept badge popup for HTML read mode */}
+      {conceptPopup && (
+        <div
+          className="fixed z-50 w-72 p-3 rounded-md border bg-popover text-popover-foreground shadow-md"
+          style={{
+            top: conceptPopup.badgeRect.top - 8,
+            left: Math.min(conceptPopup.badgeRect.left, window.innerWidth - 300),
+            transform: "translateY(-100%)",
+          }}
+        >
+          <div className="space-y-2">
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <p className="font-medium text-sm text-foreground">{conceptPopup.term}</p>
+              {conceptPopup.parentTerm && (
+                <span className="text-[10px] text-muted-foreground/70">
+                  属于 {conceptPopup.parentTerm}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">{conceptPopup.definition}</p>
+            {conceptPopup.totalOccurrences != null && conceptPopup.totalOccurrences > 0 && (
+              <p className="text-[10px] text-muted-foreground/70">
+                全书出现 {conceptPopup.totalOccurrences} 次
+              </p>
+            )}
+          </div>
+          <button
+            className="absolute top-1 right-1 p-1 text-muted-foreground hover:text-foreground"
+            onClick={() => setConceptPopup(null)}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1295,6 +1358,10 @@ function applyDomConceptBadges(
 
       const badge = document.createElement("span");
       badge.dataset.conceptBadge = ann.concept_id;
+      badge.dataset.conceptTerm = ann.term;
+      badge.dataset.conceptDefinition = ann.popover.initial_definition;
+      if (ann.popover.parent_term) badge.dataset.conceptParent = ann.popover.parent_term;
+      if (ann.popover.total_occurrences) badge.dataset.conceptOccurrences = String(ann.popover.total_occurrences);
       badge.textContent = String(ann.badge_number);
       badge.title = `${ann.term}: ${ann.popover.initial_definition}`;
       const bgColor = ann.category === "cultural_context" ? "#f59e0b" : "#8b5cf6";
