@@ -1,7 +1,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { BookOpen, Headphones } from "lucide-react";
+import { BookOpen, Headphones, Sparkles } from "lucide-react";
 import type { WordTimestamp, Highlight, HighlightColor } from "@/api/types";
 import type { ConceptAnnotation, ConceptOccurrence } from "@/api/services";
 import type { UnifiedMode, InteractionMode, ContentMode } from "@/lib/ai/types";
@@ -91,6 +91,11 @@ export function Reader({
   const isPlayMode = interactionMode === "play";
   const isReadMode = interactionMode === "read";
 
+  // 角标显示开关
+  const hasAnnotations = annotations.length > 0;
+  const [showAnnotations, setShowAnnotations] = useState(true);
+  const effectiveAnnotations = showAnnotations ? annotations : [];
+
   // 概念角标: 把每个 occurrence 映射到包含其 matched_text 的 sentence
   // - 缺失 matched_text 的跳过
   // - 按 para_idx_in_chapter 升序处理, 用游标在 sentences 上前进, 避免同一关键词
@@ -98,10 +103,10 @@ export function Reader({
   type BadgeItem = { ann: ConceptAnnotation; occurrence: ConceptOccurrence };
   const annotationsBySentence = useMemo(() => {
     const map = new Map<number, BadgeItem[]>();
-    if (!annotations.length || !sentences.length) return map;
+    if (!effectiveAnnotations.length || !sentences.length) return map;
 
     const items: BadgeItem[] = [];
-    for (const ann of annotations) {
+    for (const ann of effectiveAnnotations) {
       for (const occ of ann.occurrences) {
         if (!occ.matched_text) continue;
         items.push({ ann, occurrence: occ });
@@ -128,7 +133,7 @@ export function Reader({
       cursor = foundSentence; // 允许同一句多个角标; 下一项至少从这句开始
     }
     return map;
-  }, [annotations, sentences]);
+  }, [effectiveAnnotations, sentences]);
 
   // 把概念角标内联到句子文本中(紧跟在 matched_text 后面)
   // definition 走深紫色徽章 + 弹窗显示 initial_definition
@@ -364,6 +369,11 @@ export function Reader({
     badgeRect: DOMRect;
   } | null>(null);
 
+  // 关闭角标时同时关闭弹窗
+  useEffect(() => {
+    if (!showAnnotations) setConceptPopup(null);
+  }, [showAnnotations]);
+
   const createHighlight = useCreateHighlight();
   const updateHighlight = useUpdateHighlight();
   const deleteHighlight = useDeleteHighlight();
@@ -590,9 +600,18 @@ export function Reader({
 
   // Apply concept badges in HTML read mode
   useEffect(() => {
-    if (!shouldRenderHtmlReadMode || !readModeRef.current || !annotations.length) return;
-    applyDomConceptBadges(readModeRef.current, annotations);
-  }, [shouldRenderHtmlReadMode, annotations, processedHtml]);
+    if (!shouldRenderHtmlReadMode || !readModeRef.current) return;
+    if (!effectiveAnnotations.length) {
+      // Remove badges when annotations are hidden
+      readModeRef.current.querySelectorAll("span[data-concept-badge]").forEach((el) => {
+        const parent = el.parentNode;
+        el.remove();
+        if (parent) parent.normalize();
+      });
+      return;
+    }
+    applyDomConceptBadges(readModeRef.current, effectiveAnnotations);
+  }, [shouldRenderHtmlReadMode, effectiveAnnotations, processedHtml]);
 
   // Handle pointer up for text selection
   const handlePointerUp = useCallback(
@@ -851,25 +870,42 @@ export function Reader({
             ))}
           </div>
 
-          <div className="inline-flex items-center rounded-lg bg-muted p-1 text-muted-foreground">
-            {([
-              ["original", "原文"],
-              ["translated", "译文"],
-              ["bilingual", "原+译"],
-            ] as const)
-              .filter(([mode]) => availableContentModes.includes(mode))
-              .map(([mode, label]) => (
-                <button
-                  key={mode}
-                  onClick={() => setContentMode(mode)}
-                  className={cn(
-                    "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium transition-all",
-                    contentMode === mode ? "bg-background text-foreground shadow-sm" : "hover:text-foreground"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
+          <div className="inline-flex items-center gap-2">
+            <div className="inline-flex items-center rounded-lg bg-muted p-1 text-muted-foreground">
+              {([
+                ["original", "原文"],
+                ["translated", "译文"],
+                ["bilingual", "原+译"],
+              ] as const)
+                .filter(([mode]) => availableContentModes.includes(mode))
+                .map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => setContentMode(mode)}
+                    className={cn(
+                      "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                      contentMode === mode ? "bg-background text-foreground shadow-sm" : "hover:text-foreground"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+            </div>
+            {hasAnnotations && (
+              <button
+                onClick={() => setShowAnnotations((v) => !v)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  showAnnotations
+                    ? "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-500/20"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title={showAnnotations ? "关闭角标" : "展示角标"}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">角标</span>
+              </button>
+            )}
           </div>
         </div>
       )}
