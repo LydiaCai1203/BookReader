@@ -1111,6 +1111,8 @@ export default function BookReader() {
                   htmlContent={chapterData?.html}
                   sentenceHtmls={sentenceHtmls}
                   bookId={bookId}
+                  chapterHref={currentChapterHref || undefined}
+                  chapterTitle={metadata?.title}
                   highlights={highlights}
                   scrollToHighlight={scrollTarget}
                   annotations={conceptAnnotations}
