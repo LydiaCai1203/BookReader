@@ -58,6 +58,10 @@ https://github.com/user-attachments/assets/1f06a462-4776-4629-b709-bc459e5f3d61
 
 ![双语沉浸阅读](./assets/双语沉浸阅读.png)
 
+**智能角标**
+
+![智能角标](./assets/智能角标.png)
+
 ### 语音朗读
 
 **音色克隆**
